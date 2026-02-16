@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Turbo Eraser</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --yellow: #FFD700;
+    --yellow-hover: #FFC107;
+    --yellow-dim: #FFEB3B;
+    --bg-dark: #1a1a1a;
+    --bg-mid: #2d2d2d;
+    --bg-light: #3a3a3a;
+    --text: #e0e0e0;
+    --text-dark: #1a1a1a;
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: var(--bg-dark);
+    color: var(--text);
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+    user-select: none;
+  }
+
+  /* --- Title Bar --- */
+  .titlebar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 36px;
+    background: var(--bg-mid);
+    border-bottom: 1px solid var(--yellow);
+    -webkit-app-region: drag;
+    flex-shrink: 0;
+  }
+
+  .titlebar-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--yellow);
+    padding-left: 14px;
+  }
+
+  .titlebar-controls {
+    display: flex;
+    -webkit-app-region: no-drag;
+  }
+
+  .titlebar-controls button {
+    background: none;
+    border: none;
+    color: var(--text);
+    width: 46px;
+    height: 36px;
+    font-size: 16px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .titlebar-controls button:hover {
+    background: var(--bg-light);
+  }
+
+  .titlebar-controls button.close:hover {
+    background: #e81123;
+    color: #fff;
+  }
+
+  /* --- Toolbar --- */
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    background: var(--bg-mid);
+    border-bottom: 1px solid #444;
+    flex-shrink: 0;
+  }
+
+  .toolbar button {
+    background: var(--yellow);
+    color: var(--text-dark);
+    border: none;
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .toolbar button:hover {
+    background: var(--yellow-hover);
+  }
+
+  .toolbar button:disabled {
+    background: var(--bg-light);
+    color: #888;
+    cursor: default;
+  }
+
+  .toolbar .spacer { flex: 1; }
+
+  .toolbar label {
+    font-size: 12px;
+    color: #aaa;
+  }
+
+  .toolbar input[type="range"] {
+    width: 120px;
+    accent-color: var(--yellow);
+  }
+
+  /* --- Content --- */
+  .content {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    overflow: hidden;
+  }
+
+  #image-frame {
+    border: 3px solid var(--yellow);
+    border-radius: 4px;
+    line-height: 0;
+    position: relative;
+  }
+
+  #image-frame.pulsing {
+    animation: pulse-border 1s ease-in-out infinite;
+  }
+
+  @keyframes pulse-border {
+    0%, 100% { border-color: var(--yellow); box-shadow: 0 0 8px rgba(255,215,0,0.3); }
+    50% { border-color: var(--yellow-dim); box-shadow: 0 0 20px rgba(255,215,0,0.7); }
+  }
+
+  #canvas {
+    display: block;
+    cursor: crosshair;
+    background: #111;
+  }
+
+  /* --- Guide overlay --- */
+  #guide {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    z-index: 10;
+  }
+
+  #guide h2 {
+    color: var(--yellow);
+    font-size: 22px;
+    margin-bottom: 12px;
+  }
+
+  #guide p {
+    color: #999;
+    font-size: 14px;
+    text-align: center;
+    line-height: 1.8;
+  }
+
+  /* --- Status Bar --- */
+  .statusbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 14px;
+    background: var(--bg-mid);
+    border-top: 1px solid #444;
+    font-size: 12px;
+    flex-shrink: 0;
+  }
+
+  #status-spinner {
+    width: 14px;
+    height: 14px;
+    border: 2px solid #555;
+    border-top-color: var(--yellow);
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+    display: none;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  #latency-text {
+    margin-left: auto;
+    color: #888;
+  }
+</style>
+</head>
+<body>
+
+<!-- Title Bar -->
+<div class="titlebar">
+  <span class="titlebar-title">Turbo Eraser</span>
+  <div class="titlebar-controls">
+    <button id="win-minimize" title="Minimize">&#x2014;</button>
+    <button id="win-maximize" title="Maximize">&#x25A1;</button>
+    <button id="win-close" class="close" title="Close">&#x2715;</button>
+  </div>
+</div>
+
+<!-- Toolbar -->
+<div class="toolbar">
+  <button id="open-btn">Open</button>
+  <button id="undo-btn" disabled>Undo</button>
+  <button id="reset-btn">Reset</button>
+  <span class="spacer"></span>
+  <label for="brush-slider">Brush</label>
+  <input type="range" id="brush-slider" min="5" max="150" step="5" value="30">
+</div>
+
+<!-- Content -->
+<div class="content">
+  <div id="image-frame">
+    <canvas id="canvas" width="512" height="512"></canvas>
+  </div>
+  <div id="guide">
+    <h2>Welcome to Turbo Eraser</h2>
+    <p>1. Open an image<br>2. Paint over an object to erase<br>3. Release to see the magic</p>
+  </div>
+</div>
+
+<!-- Status Bar -->
+<div class="statusbar">
+  <div id="status-spinner"></div>
+  <span id="status-text">Ready</span>
+  <span id="latency-text"></span>
+</div>
+
+<script src="renderer.js"></script>
+</body>
+</html>

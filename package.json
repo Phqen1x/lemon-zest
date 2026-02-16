@@ -1,0 +1,15 @@
+{
+  "name": "turbo-eraser",
+  "version": "1.0.0",
+  "description": "AI-powered object removal using local Lemonade Server",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0"
+  }
+}
