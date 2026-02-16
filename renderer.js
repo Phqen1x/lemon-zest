@@ -1,20 +1,24 @@
+const IMG_SIZE = 1024;
+
 const canvas = document.getElementById('canvas');
+canvas.width = IMG_SIZE;
+canvas.height = IMG_SIZE;
 const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
 // Offscreen canvas holding the clean image (never has overlays)
 const imageCanvas = document.createElement('canvas');
-imageCanvas.width = 512;
-imageCanvas.height = 512;
+imageCanvas.width = IMG_SIZE;
+imageCanvas.height = IMG_SIZE;
 const imageCtx = imageCanvas.getContext('2d', { willReadFrequently: true });
 
 // Offscreen mask canvas: black = keep, white = inpaint
 const maskCanvas = document.createElement('canvas');
-maskCanvas.width = 512;
-maskCanvas.height = 512;
+maskCanvas.width = IMG_SIZE;
+maskCanvas.height = IMG_SIZE;
 const maskCtx = maskCanvas.getContext('2d', { willReadFrequently: true });
 // Initialize mask to opaque black
 maskCtx.fillStyle = '#000000';
-maskCtx.fillRect(0, 0, 512, 512);
+maskCtx.fillRect(0, 0, IMG_SIZE, IMG_SIZE);
 
 const guide = document.getElementById('guide');
 const statusText = document.getElementById('status-text');
@@ -29,6 +33,7 @@ let isDrawing = false;
 let brushSize = 30;
 let undoStack = []; // stores ImageData snapshots of imageCanvas
 let debounceTimer = null;
+let inpaintInFlight = false;
 let cursorX = null;
 let cursorY = null;
 
@@ -49,21 +54,21 @@ async function loadImage(filePath) {
   const dataURL = await window.electronAPI.readFileAsDataURL(filePath);
   const img = new Image();
   img.onload = () => {
-    // Scale to fit 512x512 preserving aspect ratio
-    const scale = Math.min(512 / img.width, 512 / img.height);
+    // Scale to fit canvas preserving aspect ratio
+    const scale = Math.min(IMG_SIZE / img.width, IMG_SIZE / img.height);
     const w = img.width * scale;
     const h = img.height * scale;
-    const ox = (512 - w) / 2;
-    const oy = (512 - h) / 2;
+    const ox = (IMG_SIZE - w) / 2;
+    const oy = (IMG_SIZE - h) / 2;
 
     // Draw onto the clean image canvas (black background first)
     imageCtx.fillStyle = '#000000';
-    imageCtx.fillRect(0, 0, 512, 512);
+    imageCtx.fillRect(0, 0, IMG_SIZE, IMG_SIZE);
     imageCtx.drawImage(img, ox, oy, w, h);
 
     // Reset mask to black
     maskCtx.fillStyle = '#000000';
-    maskCtx.fillRect(0, 0, 512, 512);
+    maskCtx.fillRect(0, 0, IMG_SIZE, IMG_SIZE);
 
     undoStack = [];
     undoBtn.disabled = true;
@@ -81,7 +86,7 @@ canvas.addEventListener('mousedown', (e) => {
   isDrawing = true;
 
   // Save undo snapshot of the clean image
-  undoStack.push(imageCtx.getImageData(0, 0, 512, 512));
+  undoStack.push(imageCtx.getImageData(0, 0, IMG_SIZE, IMG_SIZE));
   undoBtn.disabled = false;
 
   paintMask(e.offsetX, e.offsetY);
@@ -126,17 +131,17 @@ function paintMask(x, y) {
 
 function redraw() {
   // Always start by drawing the clean image
-  ctx.clearRect(0, 0, 512, 512);
+  ctx.clearRect(0, 0, IMG_SIZE, IMG_SIZE);
   ctx.drawImage(imageCanvas, 0, 0);
 
   // Red overlay on masked areas while drawing
   if (isDrawing) {
-    const maskData = maskCtx.getImageData(0, 0, 512, 512);
+    const maskData = maskCtx.getImageData(0, 0, IMG_SIZE, IMG_SIZE);
     const tmpCanvas = document.createElement('canvas');
-    tmpCanvas.width = 512;
-    tmpCanvas.height = 512;
+    tmpCanvas.width = IMG_SIZE;
+    tmpCanvas.height = IMG_SIZE;
     const tmpCtx = tmpCanvas.getContext('2d');
-    const overlay = tmpCtx.createImageData(512, 512);
+    const overlay = tmpCtx.createImageData(IMG_SIZE, IMG_SIZE);
     for (let i = 0; i < maskData.data.length; i += 4) {
       if (maskData.data[i] > 200) {
         overlay.data[i] = 255;     // R
@@ -165,60 +170,117 @@ function redraw() {
   }
 }
 
-// --- Convert canvas ImageData to RGB PNG blob (no alpha channel) ---
-// This matches the Python version's img.convert("RGB").save(format="PNG")
-function canvasToRGBBlob(cvs) {
-  const w = cvs.width;
-  const h = cvs.height;
-  const srcCtx = cvs.getContext('2d');
-  const imageData = srcCtx.getImageData(0, 0, w, h);
-  const rgba = imageData.data;
-
-  // Force all alpha to 255 (fully opaque) and composite on black
-  for (let i = 0; i < rgba.length; i += 4) {
-    const a = rgba[i + 3] / 255;
-    rgba[i]     = Math.round(rgba[i] * a);     // R * alpha
-    rgba[i + 1] = Math.round(rgba[i + 1] * a); // G * alpha
-    rgba[i + 2] = Math.round(rgba[i + 2] * a); // B * alpha
-    rgba[i + 3] = 255;                          // full alpha
-  }
-
-  // Put back and export
-  const tmp = document.createElement('canvas');
-  tmp.width = w;
-  tmp.height = h;
-  const tmpCtx = tmp.getContext('2d');
-  tmpCtx.putImageData(new ImageData(rgba, w, h), 0, 0);
-
-  return new Promise((resolve) => tmp.toBlob(resolve, 'image/png'));
-}
-
 // --- Inpaint ---
 function schedulInpaint() {
   if (debounceTimer) clearTimeout(debounceTimer);
   debounceTimer = setTimeout(runInpaint, 400);
 }
 
+const CROP_PADDING = 64; // px of context around mask bounding box
+const MIN_CROP = 512;    // minimum crop dimension — sd models need reasonable sizes
+
+// Find bounding box of white pixels in the mask, return a square crop region
+function getMaskBounds() {
+  const maskData = maskCtx.getImageData(0, 0, IMG_SIZE, IMG_SIZE);
+  const d = maskData.data;
+  let minX = IMG_SIZE, minY = IMG_SIZE, maxX = 0, maxY = 0;
+  let found = false;
+
+  for (let y = 0; y < IMG_SIZE; y++) {
+    for (let x = 0; x < IMG_SIZE; x++) {
+      const i = (y * IMG_SIZE + x) * 4;
+      if (d[i] > 200) { // white pixel in mask
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+        found = true;
+      }
+    }
+  }
+
+  if (!found) return null;
+
+  // Add padding
+  minX = Math.max(0, minX - CROP_PADDING);
+  minY = Math.max(0, minY - CROP_PADDING);
+  maxX = Math.min(IMG_SIZE - 1, maxX + CROP_PADDING);
+  maxY = Math.min(IMG_SIZE - 1, maxY + CROP_PADDING);
+
+  // Make it square (use the larger dimension)
+  let w = maxX - minX + 1;
+  let h = maxY - minY + 1;
+  let size = Math.max(w, h);
+
+  // Enforce minimum size
+  size = Math.max(size, MIN_CROP);
+
+  // If the crop is nearly the full image, just send the full image
+  if (size > IMG_SIZE * 0.75) return null;
+
+  // Center the square on the mask bounding box center
+  const cx = (minX + maxX) / 2;
+  const cy = (minY + maxY) / 2;
+  let x = Math.round(cx - size / 2);
+  let y = Math.round(cy - size / 2);
+
+  // Clamp to canvas bounds
+  x = Math.max(0, Math.min(x, IMG_SIZE - size));
+  y = Math.max(0, Math.min(y, IMG_SIZE - size));
+
+  return { x, y, w: size, h: size };
+}
+
+// Create a cropped canvas from a source canvas
+function cropCanvas(srcCanvas, bounds) {
+  const cropped = document.createElement('canvas');
+  cropped.width = bounds.w;
+  cropped.height = bounds.h;
+  const cCtx = cropped.getContext('2d');
+  cCtx.drawImage(srcCanvas, bounds.x, bounds.y, bounds.w, bounds.h, 0, 0, bounds.w, bounds.h);
+  return cropped;
+}
+
+function canvasToBlob(cvs) {
+  return new Promise((resolve) => cvs.toBlob(resolve, 'image/png'));
+}
+
 async function runInpaint() {
-  if (!imageLoaded) return;
+  if (!imageLoaded || inpaintInFlight) return;
+  inpaintInFlight = true;
   setStatus('Inpainting...', true);
   imageFrame.classList.add('pulsing');
 
   const start = performance.now();
 
   try {
-    // Export clean image and mask as RGB PNGs (no alpha)
-    const imageBlob = await canvasToRGBBlob(imageCanvas);
-    const maskBlob = await canvasToRGBBlob(maskCanvas);
+    // Find mask bounds and crop to just the masked region
+    const bounds = getMaskBounds();
+
+    let imageBlob, maskBlob, sendSize;
+
+    if (bounds) {
+      // Cropped mode — send only the region around the mask
+      const croppedImage = cropCanvas(imageCanvas, bounds);
+      const croppedMask = cropCanvas(maskCanvas, bounds);
+      console.log(`Crop: ${bounds.w}x${bounds.h} at (${bounds.x},${bounds.y}) vs full ${IMG_SIZE}x${IMG_SIZE}`);
+      imageBlob = await canvasToBlob(croppedImage);
+      maskBlob = await canvasToBlob(croppedMask);
+      sendSize = `${bounds.w}x${bounds.h}`;
+    } else {
+      // Full image mode — mask too large or covers most of the image
+      console.log(`Sending full ${IMG_SIZE}x${IMG_SIZE} image`);
+      imageBlob = await canvasToBlob(imageCanvas);
+      maskBlob = await canvasToBlob(maskCanvas);
+      sendSize = `${IMG_SIZE}x${IMG_SIZE}`;
+    }
 
     const formData = new FormData();
     formData.append('image', imageBlob, 'image.png');
     formData.append('mask', maskBlob, 'mask.png');
-    formData.append('model', 'SD-Turbo');
+    formData.append('model', 'Flux-2-Klein-4B');
     formData.append('prompt', 'seamless background fill');
-    formData.append('steps', '4');
-    formData.append('strength', '0.5');
-    formData.append('cfg_scale', '1.0');
+    formData.append('size', sendSize);
 
     const res = await fetch('http://localhost:8000/api/v1/images/edits', {
       method: 'POST',
@@ -231,21 +293,22 @@ async function runInpaint() {
     const b64 = json.data[0].b64_json;
 
     const latency = (performance.now() - start) / 1000;
-    await applyResult(b64);
+    await applyResult(b64, bounds);
     setStatus('Ready', false, latency);
   } catch (err) {
     console.error('Inpaint error:', err);
     if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
-      setStatus('Connection Error: Is SD-Turbo running?');
+      setStatus('Connection Error: Is Lemonade Server running?');
     } else {
       setStatus(`Error: ${err.message}`);
     }
   } finally {
+    inpaintInFlight = false;
     imageFrame.classList.remove('pulsing');
   }
 }
 
-async function applyResult(b64) {
+async function applyResult(b64, bounds) {
   const img = new Image();
   await new Promise((resolve, reject) => {
     img.onload = resolve;
@@ -253,13 +316,18 @@ async function applyResult(b64) {
     img.src = 'data:image/png;base64,' + b64;
   });
 
-  // Update the clean image canvas
-  imageCtx.clearRect(0, 0, 512, 512);
-  imageCtx.drawImage(img, 0, 0);
+  if (bounds) {
+    // Paste the cropped result back at the correct position
+    imageCtx.drawImage(img, bounds.x, bounds.y, bounds.w, bounds.h);
+  } else {
+    // Full image replacement
+    imageCtx.clearRect(0, 0, IMG_SIZE, IMG_SIZE);
+    imageCtx.drawImage(img, 0, 0);
+  }
 
   // Reset mask
   maskCtx.fillStyle = '#000000';
-  maskCtx.fillRect(0, 0, 512, 512);
+  maskCtx.fillRect(0, 0, IMG_SIZE, IMG_SIZE);
 
   redraw();
 }
@@ -271,16 +339,16 @@ undoBtn.addEventListener('click', () => {
   imageCtx.putImageData(prev, 0, 0);
   undoBtn.disabled = undoStack.length === 0;
   maskCtx.fillStyle = '#000000';
-  maskCtx.fillRect(0, 0, 512, 512);
+  maskCtx.fillRect(0, 0, IMG_SIZE, IMG_SIZE);
   redraw();
 });
 
 // --- Reset ---
 document.getElementById('reset-btn').addEventListener('click', () => {
-  imageCtx.clearRect(0, 0, 512, 512);
-  ctx.clearRect(0, 0, 512, 512);
+  imageCtx.clearRect(0, 0, IMG_SIZE, IMG_SIZE);
+  ctx.clearRect(0, 0, IMG_SIZE, IMG_SIZE);
   maskCtx.fillStyle = '#000000';
-  maskCtx.fillRect(0, 0, 512, 512);
+  maskCtx.fillRect(0, 0, IMG_SIZE, IMG_SIZE);
   undoStack = [];
   undoBtn.disabled = true;
   imageLoaded = false;
