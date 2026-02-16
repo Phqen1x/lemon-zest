@@ -1,19 +1,14 @@
-# Turbo Eraser
+# Lemon Zest
 
-A real-time object removal tool built with Python, GTK4, and Libadwaita. It utilizes the **SD-Turbo** model served via **Lemonade Server** for near-instant generative inpainting.
+Lemon Zest is an Electron-based tool for local, AI-powered object removal. Using **Flux-2-Klein-4B** on a **Lemonade Server**, it provides a near-instant "Magic Eraser" experience.
 
-## Features
-* **Real-time Inpainting:** Automated removal triggered 300ms after brush release.
-* **Modern UI:** Built with Libadwaita for a native Ubuntu experience.
-* **Undo Support:** Revert unwanted AI generations instantly.
-* **Dynamic Brush:** Adjustable brush size for precision or broad strokes.
+## Key Features
+* **Yellow Lemonade Theme:** Custom frameless window with yellow accent UI.
+* **Crop-to-Mask Optimization:** Only the masked region is sent for inference, significantly reducing processing time for small edits.
+* **Guide Overlay:** Helpful instructions for new users that disappear when an image is loaded.
+* **Full Undo/Reset:** Quickly revert or clear your session.
 
-## Prerequisites
-1.  **Lemonade Server:** [Install Lemonade](https://github.com/lemonade-adaptive/lemonade)
-2.  **Model:** Run `lemonade run sd-turbo` on port 8000.
-3.  **Python Deps:** `pip install requests Pillow PyGObject`
-
-## Usage
-1. Start the Lemonade Server.
-2. Run `python main.py`.
-3. Open an image, paint over an object with the red brush, and release to erase.
+## Setup
+1. **Lemonade Server:** Start with `lemonade run Flux-2-Klein-4B`.
+2. **Dependencies:** `npm install`
+3. **Run:** `npm start`
