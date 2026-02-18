@@ -107,6 +107,19 @@
     cursor: default;
   }
 
+  .toolbar button.tool-toggle {
+    background: var(--bg-light);
+    color: var(--text);
+    border: 2px solid transparent;
+    padding: 5px 12px;
+  }
+
+  .toolbar button.tool-toggle.active {
+    background: var(--yellow);
+    color: var(--text-dark);
+    border-color: var(--yellow-hover);
+  }
+
   .toolbar .spacer { flex: 1; }
 
   .toolbar label {
@@ -117,6 +130,42 @@
   .toolbar input[type="range"] {
     width: 120px;
     accent-color: var(--yellow);
+  }
+
+  .toolbar-row2 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    background: var(--bg-mid);
+    border-bottom: 1px solid #444;
+    flex-shrink: 0;
+  }
+
+  .toolbar-row2 label {
+    font-size: 12px;
+    color: #aaa;
+  }
+
+  .toolbar-row2 input[type="range"] {
+    width: 100px;
+    accent-color: var(--yellow);
+  }
+
+  .toolbar-row2 input[type="text"] {
+    flex: 1;
+    min-width: 120px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    border: 1px solid #555;
+    background: var(--bg-light);
+    color: var(--text);
+    font-size: 12px;
+  }
+
+  .toolbar-row2 input[type="text"]:focus {
+    outline: none;
+    border-color: var(--yellow);
   }
 
   /* --- Content --- */
@@ -147,7 +196,7 @@
 
   #canvas {
     display: block;
-    cursor: crosshair;
+    cursor: none;
     background: #111;
   }
 
@@ -223,11 +272,25 @@
 <!-- Toolbar -->
 <div class="toolbar">
   <button id="open-btn">Open</button>
+  <button id="save-btn" disabled>Save As</button>
   <button id="undo-btn" disabled>Undo</button>
   <button id="reset-btn">Reset</button>
+  <button id="tool-brush" class="tool-toggle active" title="Brush tool (B)">Brush</button>
+  <button id="tool-lasso" class="tool-toggle" title="Lasso tool (L)">Lasso</button>
+  <button id="tool-rect" class="tool-toggle" title="Rectangle tool (R)">Rect</button>
+  <button id="tool-circle" class="tool-toggle" title="Circle tool (C)">Circle</button>
   <span class="spacer"></span>
   <label for="brush-slider">Brush</label>
   <input type="range" id="brush-slider" min="5" max="150" step="5" value="30">
+</div>
+
+<div class="toolbar-row2">
+  <label for="prompt-input">Prompt</label>
+  <input type="text" id="prompt-input" value="seamless background fill" placeholder="Describe the fill...">
+  <label for="strength-slider">Strength <span id="strength-value">0.75</span></label>
+  <input type="range" id="strength-slider" min="0" max="1" step="0.05" value="0.75">
+  <label for="steps-slider">Steps <span id="steps-value">4</span></label>
+  <input type="range" id="steps-slider" min="1" max="20" step="1" value="4">
 </div>
 
 <!-- Content -->
@@ -237,7 +300,7 @@
   </div>
   <div id="guide">
     <h2>Welcome to Lemon Zest</h2>
-    <p>1. Open an image<br>2. Paint over an object to erase<br>3. Release to see the magic</p>
+    <p>1. Open an image<br>2. Paint or lasso an object to erase<br>3. Release to see the magic</p>
   </div>
 </div>
 

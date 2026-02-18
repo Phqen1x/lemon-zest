@@ -43,6 +43,17 @@ ipcMain.handle('read-file-as-dataurl', async (event, filePath) => {
   return `data:${mime};base64,${buf.toString('base64')}`;
 });
 
+ipcMain.handle('save-file-dialog', async (event, dataURL) => {
+  const result = await dialog.showSaveDialog(mainWindow, {
+    filters: [{ name: 'PNG Image', extensions: ['png'] }, { name: 'JPEG Image', extensions: ['jpg', 'jpeg'] }]
+  });
+  if (result.canceled) return null;
+  const filePath = result.filePath;
+  const base64 = dataURL.replace(/^data:image\/\w+;base64,/, '');
+  fs.writeFileSync(filePath, Buffer.from(base64, 'base64'));
+  return filePath;
+});
+
 ipcMain.on('window-minimize', () => mainWindow.minimize());
 ipcMain.on('window-maximize', () => {
   if (mainWindow.isMaximized()) mainWindow.unmaximize();

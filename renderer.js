@@ -25,8 +25,18 @@ const statusText = document.getElementById('status-text');
 const statusSpinner = document.getElementById('status-spinner');
 const latencyText = document.getElementById('latency-text');
 const undoBtn = document.getElementById('undo-btn');
+const saveBtn = document.getElementById('save-btn');
 const brushSlider = document.getElementById('brush-slider');
 const imageFrame = document.getElementById('image-frame');
+const promptInput = document.getElementById('prompt-input');
+const strengthSlider = document.getElementById('strength-slider');
+const strengthValue = document.getElementById('strength-value');
+const stepsSlider = document.getElementById('steps-slider');
+const stepsValue = document.getElementById('steps-value');
+const toolBrushBtn = document.getElementById('tool-brush');
+const toolLassoBtn = document.getElementById('tool-lasso');
+const toolRectBtn = document.getElementById('tool-rect');
+const toolCircleBtn = document.getElementById('tool-circle');
 
 let imageLoaded = false;
 let isDrawing = false;
@@ -37,9 +47,51 @@ let inpaintInFlight = false;
 let cursorX = null;
 let cursorY = null;
 
+// Tool state
+let currentTool = 'brush'; // 'brush' | 'lasso' | 'rect' | 'circle'
+let lassoPath = [];         // array of {x, y} points
+let shapeStart = null;      // {x, y} for rect/circle drag start
+
 // --- Brush slider ---
 brushSlider.addEventListener('input', () => {
   brushSize = parseInt(brushSlider.value, 10);
+});
+
+// --- Parameter sliders ---
+strengthSlider.addEventListener('input', () => {
+  strengthValue.textContent = parseFloat(strengthSlider.value).toFixed(2);
+});
+
+stepsSlider.addEventListener('input', () => {
+  stepsValue.textContent = stepsSlider.value;
+});
+
+// --- Tool toggle ---
+toolBrushBtn.addEventListener('click', () => setTool('brush'));
+toolLassoBtn.addEventListener('click', () => setTool('lasso'));
+toolRectBtn.addEventListener('click', () => setTool('rect'));
+toolCircleBtn.addEventListener('click', () => setTool('circle'));
+
+function setTool(tool) {
+  currentTool = tool;
+  toolBrushBtn.classList.toggle('active', tool === 'brush');
+  toolLassoBtn.classList.toggle('active', tool === 'lasso');
+  toolRectBtn.classList.toggle('active', tool === 'rect');
+  toolCircleBtn.classList.toggle('active', tool === 'circle');
+  canvas.style.cursor = tool === 'brush' ? 'none' : 'crosshair';
+  // Cancel any in-progress shape
+  lassoPath = [];
+  shapeStart = null;
+  redraw();
+}
+
+// Keyboard shortcuts for tools
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT') return;
+  if (e.key === 'b' || e.key === 'B') setTool('brush');
+  if (e.key === 'l' || e.key === 'L') setTool('lasso');
+  if (e.key === 'r' || e.key === 'R') setTool('rect');
+  if (e.key === 'c' || e.key === 'C') setTool('circle');
 });
 
 // --- Open image ---
@@ -73,6 +125,7 @@ async function loadImage(filePath) {
     undoStack = [];
     undoBtn.disabled = true;
     imageLoaded = true;
+    saveBtn.disabled = false;
     guide.style.display = 'none';
     setStatus('Ready');
     redraw();
@@ -83,20 +136,37 @@ async function loadImage(filePath) {
 // --- Drawing ---
 canvas.addEventListener('mousedown', (e) => {
   if (!imageLoaded) return;
-  isDrawing = true;
 
-  // Save undo snapshot of the clean image
+  // Save undo snapshot for all tools
+  isDrawing = true;
   undoStack.push(imageCtx.getImageData(0, 0, IMG_SIZE, IMG_SIZE));
   undoBtn.disabled = false;
 
-  paintMask(e.offsetX, e.offsetY);
+  if (currentTool === 'brush') {
+    paintMask(e.offsetX, e.offsetY);
+  } else if (currentTool === 'lasso') {
+    lassoPath = [{ x: e.offsetX, y: e.offsetY }];
+    redraw();
+  } else if (currentTool === 'rect' || currentTool === 'circle') {
+    shapeStart = { x: e.offsetX, y: e.offsetY };
+    redraw();
+  }
 });
 
 canvas.addEventListener('mousemove', (e) => {
   cursorX = e.offsetX;
   cursorY = e.offsetY;
+
   if (isDrawing) {
-    paintMask(e.offsetX, e.offsetY);
+    if (currentTool === 'brush') {
+      paintMask(e.offsetX, e.offsetY);
+    } else if (currentTool === 'lasso') {
+      lassoPath.push({ x: e.offsetX, y: e.offsetY });
+      redraw();
+    } else {
+      // rect or circle — just redraw for preview
+      redraw();
+    }
   } else {
     redraw();
   }
@@ -105,17 +175,58 @@ canvas.addEventListener('mousemove', (e) => {
 canvas.addEventListener('mouseup', () => {
   if (!isDrawing) return;
   isDrawing = false;
-  redraw();
-  schedulInpaint();
+
+  if (currentTool === 'brush') {
+    redraw();
+    schedulInpaint();
+  } else if (currentTool === 'lasso') {
+    if (lassoPath.length >= 3) {
+      fillLassoMask();
+      schedulInpaint();
+    }
+    lassoPath = [];
+    redraw();
+  } else if (currentTool === 'rect') {
+    if (shapeStart && cursorX !== null) {
+      fillRectMask(shapeStart.x, shapeStart.y, cursorX, cursorY);
+      schedulInpaint();
+    }
+    shapeStart = null;
+    redraw();
+  } else if (currentTool === 'circle') {
+    if (shapeStart && cursorX !== null) {
+      fillCircleMask(shapeStart.x, shapeStart.y, cursorX, cursorY);
+      schedulInpaint();
+    }
+    shapeStart = null;
+    redraw();
+  }
 });
 
 canvas.addEventListener('mouseleave', () => {
+  const hadDrawing = isDrawing;
   cursorX = null;
   cursorY = null;
-  if (isDrawing) {
+
+  if (hadDrawing) {
     isDrawing = false;
-    redraw();
-    schedulInpaint();
+    if (currentTool === 'brush') {
+      redraw();
+      schedulInpaint();
+    } else if (currentTool === 'lasso') {
+      if (lassoPath.length >= 3) {
+        fillLassoMask();
+        schedulInpaint();
+      }
+      lassoPath = [];
+      redraw();
+    } else if (currentTool === 'rect' || currentTool === 'circle') {
+      // Cancel shape on leave — remove undo snapshot since nothing was applied
+      undoStack.pop();
+      undoBtn.disabled = undoStack.length === 0;
+      shapeStart = null;
+      redraw();
+    }
   } else {
     redraw();
   }
@@ -129,6 +240,40 @@ function paintMask(x, y) {
   redraw();
 }
 
+function fillLassoMask() {
+  if (lassoPath.length < 3) return;
+  maskCtx.fillStyle = '#ffffff';
+  maskCtx.beginPath();
+  maskCtx.moveTo(lassoPath[0].x, lassoPath[0].y);
+  for (let i = 1; i < lassoPath.length; i++) {
+    maskCtx.lineTo(lassoPath[i].x, lassoPath[i].y);
+  }
+  maskCtx.closePath();
+  maskCtx.fill();
+}
+
+function fillRectMask(x1, y1, x2, y2) {
+  const x = Math.min(x1, x2);
+  const y = Math.min(y1, y2);
+  const w = Math.abs(x2 - x1);
+  const h = Math.abs(y2 - y1);
+  if (w < 2 || h < 2) return;
+  maskCtx.fillStyle = '#ffffff';
+  maskCtx.fillRect(x, y, w, h);
+}
+
+function fillCircleMask(x1, y1, x2, y2) {
+  const cx = (x1 + x2) / 2;
+  const cy = (y1 + y2) / 2;
+  const rx = Math.abs(x2 - x1) / 2;
+  const ry = Math.abs(y2 - y1) / 2;
+  if (rx < 2 || ry < 2) return;
+  maskCtx.fillStyle = '#ffffff';
+  maskCtx.beginPath();
+  maskCtx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+  maskCtx.fill();
+}
+
 function redraw() {
   // Always start by drawing the clean image
   ctx.clearRect(0, 0, IMG_SIZE, IMG_SIZE);
@@ -137,35 +282,104 @@ function redraw() {
   // Red overlay on masked areas while drawing
   if (isDrawing) {
     const maskData = maskCtx.getImageData(0, 0, IMG_SIZE, IMG_SIZE);
-    const tmpCanvas = document.createElement('canvas');
-    tmpCanvas.width = IMG_SIZE;
-    tmpCanvas.height = IMG_SIZE;
-    const tmpCtx = tmpCanvas.getContext('2d');
-    const overlay = tmpCtx.createImageData(IMG_SIZE, IMG_SIZE);
-    for (let i = 0; i < maskData.data.length; i += 4) {
-      if (maskData.data[i] > 200) {
-        overlay.data[i] = 255;     // R
-        overlay.data[i + 1] = 0;   // G
-        overlay.data[i + 2] = 0;   // B
-        overlay.data[i + 3] = 102;  // ~40% alpha
+    const hasMask = maskData.data.some((v, i) => i % 4 === 0 && v > 200);
+    if (hasMask) {
+      const tmpCanvas = document.createElement('canvas');
+      tmpCanvas.width = IMG_SIZE;
+      tmpCanvas.height = IMG_SIZE;
+      const tmpCtx = tmpCanvas.getContext('2d');
+      const overlay = tmpCtx.createImageData(IMG_SIZE, IMG_SIZE);
+      for (let i = 0; i < maskData.data.length; i += 4) {
+        if (maskData.data[i] > 200) {
+          overlay.data[i] = 255;     // R
+          overlay.data[i + 1] = 0;   // G
+          overlay.data[i + 2] = 0;   // B
+          overlay.data[i + 3] = 102;  // ~40% alpha
+        }
       }
+      tmpCtx.putImageData(overlay, 0, 0);
+      ctx.drawImage(tmpCanvas, 0, 0);
     }
-    tmpCtx.putImageData(overlay, 0, 0);
-    ctx.drawImage(tmpCanvas, 0, 0);
   }
 
-  // Cursor circle preview
+  // Lasso preview path
+  if (currentTool === 'lasso' && isDrawing && lassoPath.length > 0) {
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255, 215, 0, 0.9)';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 4]);
+    ctx.beginPath();
+    ctx.moveTo(lassoPath[0].x, lassoPath[0].y);
+    for (let i = 1; i < lassoPath.length; i++) {
+      ctx.lineTo(lassoPath[i].x, lassoPath[i].y);
+    }
+    // Draw closure line back to start
+    ctx.lineTo(lassoPath[0].x, lassoPath[0].y);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Rectangle preview
+  if (currentTool === 'rect' && isDrawing && shapeStart && cursorX !== null) {
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255, 215, 0, 0.9)';
+    ctx.fillStyle = 'rgba(255, 0, 0, 0.15)';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 4]);
+    const x = Math.min(shapeStart.x, cursorX);
+    const y = Math.min(shapeStart.y, cursorY);
+    const w = Math.abs(cursorX - shapeStart.x);
+    const h = Math.abs(cursorY - shapeStart.y);
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeRect(x, y, w, h);
+    ctx.restore();
+  }
+
+  // Circle/ellipse preview
+  if (currentTool === 'circle' && isDrawing && shapeStart && cursorX !== null) {
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255, 215, 0, 0.9)';
+    ctx.fillStyle = 'rgba(255, 0, 0, 0.15)';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 4]);
+    const cx = (shapeStart.x + cursorX) / 2;
+    const cy = (shapeStart.y + cursorY) / 2;
+    const rx = Math.abs(cursorX - shapeStart.x) / 2;
+    const ry = Math.abs(cursorY - shapeStart.y) / 2;
+    if (rx > 0 && ry > 0) {
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // Cursor preview
   if (cursorX !== null && cursorY !== null && imageLoaded) {
     ctx.save();
-    ctx.strokeStyle = 'rgba(255,255,255,0.8)';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(cursorX, cursorY, brushSize / 2, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.fillStyle = 'rgba(255,255,255,0.6)';
-    ctx.beginPath();
-    ctx.arc(cursorX, cursorY, 2, 0, Math.PI * 2);
-    ctx.fill();
+    if (currentTool === 'brush') {
+      ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(cursorX, cursorY, brushSize / 2, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(255,255,255,0.6)';
+      ctx.beginPath();
+      ctx.arc(cursorX, cursorY, 2, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      // Crosshair cursor for lasso, rect, circle
+      const armLen = 10;
+      ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(cursorX - armLen, cursorY);
+      ctx.lineTo(cursorX + armLen, cursorY);
+      ctx.moveTo(cursorX, cursorY - armLen);
+      ctx.lineTo(cursorX, cursorY + armLen);
+      ctx.stroke();
+    }
     ctx.restore();
   }
 }
@@ -279,8 +493,10 @@ async function runInpaint() {
     formData.append('image', imageBlob, 'image.png');
     formData.append('mask', maskBlob, 'mask.png');
     formData.append('model', 'Flux-2-Klein-4B');
-    formData.append('prompt', 'seamless background fill');
+    formData.append('prompt', promptInput.value || 'seamless background fill');
     formData.append('size', sendSize);
+    formData.append('denoising_strength', strengthSlider.value);
+    formData.append('steps', stepsSlider.value);
 
     const res = await fetch('http://localhost:8000/api/v1/images/edits', {
       method: 'POST',
@@ -332,6 +548,14 @@ async function applyResult(b64, bounds) {
   redraw();
 }
 
+// --- Save As ---
+saveBtn.addEventListener('click', async () => {
+  if (!imageLoaded) return;
+  const dataURL = imageCanvas.toDataURL('image/png');
+  const saved = await window.electronAPI.saveFileDialog(dataURL);
+  if (saved) setStatus(`Saved: ${saved}`);
+});
+
 // --- Undo ---
 undoBtn.addEventListener('click', () => {
   if (undoStack.length === 0) return;
@@ -351,6 +575,7 @@ document.getElementById('reset-btn').addEventListener('click', () => {
   maskCtx.fillRect(0, 0, IMG_SIZE, IMG_SIZE);
   undoStack = [];
   undoBtn.disabled = true;
+  saveBtn.disabled = true;
   imageLoaded = false;
   guide.style.display = 'flex';
   setStatus('Reset');
