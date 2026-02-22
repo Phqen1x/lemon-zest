@@ -596,6 +596,7 @@ undoBtn.addEventListener('click', () => {
 
 // --- Reset ---
 document.getElementById('reset-btn').addEventListener('click', () => {
+  if (!confirm('Reset the canvas? This will discard all changes.')) return;
   imageCtx.clearRect(0, 0, IMG_SIZE, IMG_SIZE);
   ctx.clearRect(0, 0, IMG_SIZE, IMG_SIZE);
   maskCtx.fillStyle = '#000000';
