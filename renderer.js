@@ -301,8 +301,8 @@ function redraw() {
   ctx.clearRect(0, 0, IMG_SIZE, IMG_SIZE);
   ctx.drawImage(imageCanvas, 0, 0);
 
-  // Red overlay on masked areas while drawing
-  if (isDrawing) {
+  // Red overlay on masked areas while drawing or processing
+  if (isDrawing || inpaintInFlight) {
     const maskData = maskCtx.getImageData(0, 0, IMG_SIZE, IMG_SIZE);
     const hasMask = maskData.data.some((v, i) => i % 4 === 0 && v > 200);
     if (hasMask) {
