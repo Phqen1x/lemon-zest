@@ -57,7 +57,7 @@ let cursorX = null;
 let cursorY = null;
 
 // Tool state
-let currentTool = 'brush'; // 'brush' | 'lasso' | 'rect' | 'circle'
+let currentTool = 'rect'; // 'brush' | 'lasso' | 'rect' | 'circle'
 let lassoPath = [];         // array of {x, y} points
 let shapeStart = null;      // {x, y} for rect/circle drag start
 

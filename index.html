@@ -90,10 +90,10 @@
     background: var(--yellow);
     color: var(--text-dark);
     border: none;
-    padding: 6px 14px;
+    padding: 6px 10px;
     border-radius: 6px;
-    font-size: 13px;
-    font-weight: 600;
+    font-size: 16px;
+    line-height: 1;
     cursor: pointer;
   }
 
@@ -196,7 +196,7 @@
 
   #canvas {
     display: block;
-    cursor: none;
+    cursor: crosshair;
     background: #111;
   }
 
@@ -377,18 +377,18 @@
 
 <!-- Toolbar -->
 <div class="toolbar">
-  <button id="open-btn">Open</button>
-  <button id="save-btn" disabled>Save As</button>
+  <button id="open-btn" title="Open image">&#x1F4C2;</button>
+  <button id="save-btn" disabled title="Save As (Ctrl+S)">&#x1F4BE;</button>
   <div class="toolbar-sep"></div>
-  <button id="undo-btn" disabled>Undo</button>
-  <button id="reset-btn">Reset</button>
+  <button id="undo-btn" disabled title="Undo (Ctrl+Z)">&#x21A9;</button>
+  <button id="reset-btn" title="Reset canvas">&#x1F5D1;</button>
   <div class="toolbar-sep"></div>
-  <button id="tool-brush" class="tool-toggle active" title="Brush tool (B)">Brush B</button>
-  <button id="tool-lasso" class="tool-toggle" title="Lasso tool (L)">Lasso L</button>
-  <button id="tool-rect" class="tool-toggle" title="Rectangle tool (R)">Rect R</button>
-  <button id="tool-circle" class="tool-toggle" title="Circle tool (C)">Circle C</button>
-  <span class="brush-only" id="brush-slider-group">
-    <label for="brush-slider">Brush</label>
+  <button id="tool-brush" class="tool-toggle" title="Brush (B)">&#x1F58C;</button>
+  <button id="tool-lasso" class="tool-toggle" title="Lasso (L)">&#x2702;</button>
+  <button id="tool-rect" class="tool-toggle active" title="Rectangle (R)">&#x25AD;</button>
+  <button id="tool-circle" class="tool-toggle" title="Circle (C)">&#x25EF;</button>
+  <span class="brush-only hidden" id="brush-slider-group">
+    <label for="brush-slider">Size</label>
     <input type="range" id="brush-slider" min="5" max="150" step="5" value="30">
   </span>
 </div>
