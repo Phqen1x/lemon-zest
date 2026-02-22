@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=Lemon Zest
+Exec=lemon-zest
+Icon=${SNAP}/meta/gui/icon.png
+Type=Application
+Categories=Graphics;ImageProcessing;AI;
+Comment=AI-powered object removal using local Lemonade Server

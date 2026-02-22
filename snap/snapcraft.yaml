@@ -1,0 +1,52 @@
+name: lemon-zest
+version: '1.0.0'
+summary: AI-powered object removal using local Lemonade Server
+description: |
+  Lemon Zest lets you remove unwanted objects from images using
+  AI-powered inpainting with a local Lemonade Server. Simply brush
+  over the area you want to erase and let the AI fill it in
+  seamlessly.
+base: core24
+confinement: strict
+grade: stable
+icon: icon.png
+contact: https://github.com/phqen1x/lemon-zest/issues
+issues: https://github.com/phqen1x/lemon-zest/issues
+website: https://github.com/phqen1x/lemon-zest
+license: MIT
+platforms:
+  amd64:
+
+
+plugs:
+  shmem:
+    interface: shared-memory
+    private: true
+
+apps:
+  lemon-zest:
+    command: lemon-zest/lemon-zest --no-sandbox
+    extensions: [gnome]
+    plugs:
+      - network
+      - home
+      - removable-media
+      - shmem
+
+parts:
+  lemon-zest:
+    plugin: npm
+    source: .
+    npm-include-node: true
+    npm-node-version: "20.11.1"
+    build-packages:
+      - unzip
+    override-build: |
+      craftctl default
+      npx electron-builder --linux dir
+      mkdir -p $CRAFT_PART_INSTALL/lemon-zest
+      cp -a dist/linux-unpacked/* $CRAFT_PART_INSTALL/lemon-zest/
+    prime:
+      - -*/chrome-sandbox
+      - -*/resources/app.asar.unpacked/node_modules/sharp/vendor/lib
+      - -*/resources/app.asar.unpacked/node_modules/sharp/vendor/include
