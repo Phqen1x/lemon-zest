@@ -162,6 +162,7 @@ canvas.addEventListener('mousedown', (e) => {
   // Save undo snapshot for all tools
   isDrawing = true;
   undoStack.push(imageCtx.getImageData(0, 0, IMG_SIZE, IMG_SIZE));
+  if (undoStack.length > 20) undoStack.shift();
   undoBtn.disabled = false;
 
   if (currentTool === 'brush') {
