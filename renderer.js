@@ -95,8 +95,20 @@ function setTool(tool) {
   redraw();
 }
 
-// Keyboard shortcuts for tools
+// Keyboard shortcuts for tools and actions
 document.addEventListener('keydown', (e) => {
+  // Ctrl+Z → Undo
+  if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+    e.preventDefault();
+    undoBtn.click();
+    return;
+  }
+  // Ctrl+S → Save As
+  if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+    e.preventDefault();
+    saveBtn.click();
+    return;
+  }
   if (e.target.tagName === 'INPUT') return;
   if (e.key === 'b' || e.key === 'B') setTool('brush');
   if (e.key === 'l' || e.key === 'L') setTool('lasso');
@@ -731,3 +743,26 @@ async function waitForServerReady() {
 connectLogStream();
 // Poll health until server is ready
 waitForServerReady();
+
+// --- Drag and drop ---
+const contentArea = document.querySelector('.content');
+
+contentArea.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  contentArea.classList.add('drag-hover');
+});
+
+contentArea.addEventListener('dragleave', () => {
+  contentArea.classList.remove('drag-hover');
+});
+
+contentArea.addEventListener('drop', (e) => {
+  e.preventDefault();
+  contentArea.classList.remove('drag-hover');
+  const file = e.dataTransfer.files[0];
+  if (!file || !file.type.startsWith('image/')) return;
+  // In Electron, files have a path property
+  if (file.path) {
+    loadImage(file.path);
+  }
+});
