@@ -255,6 +255,75 @@
     margin-left: auto;
     color: #888;
   }
+
+  /* --- Status Overlay --- */
+  #status-overlay {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(26, 26, 26, 0.92);
+    z-index: 100;
+  }
+
+  .status-box {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .overlay-spinner {
+    width: 36px;
+    height: 36px;
+    border: 3px solid #555;
+    border-top-color: var(--yellow);
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+  }
+
+  #overlay-status-text {
+    color: var(--text);
+    font-size: 15px;
+  }
+
+  #download-progress {
+    width: 320px;
+    text-align: center;
+  }
+
+  #download-bar-track {
+    height: 6px;
+    background: var(--bg-light);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+
+  #download-bar-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--yellow);
+    border-radius: 3px;
+    transition: width 0.3s ease;
+  }
+
+  #download-bar-fill.indeterminate {
+    width: 40%;
+    animation: slide 1.2s ease-in-out infinite;
+  }
+
+  @keyframes slide {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(800%); }
+  }
+
+  #download-detail {
+    margin-top: 8px;
+    font-size: 12px;
+    font-family: monospace;
+    color: #888;
+  }
 </style>
 </head>
 <body>
@@ -295,6 +364,18 @@
 
 <!-- Content -->
 <div class="content">
+  <div id="status-overlay">
+    <div class="status-box">
+      <div class="overlay-spinner"></div>
+      <p id="overlay-status-text">Connecting to server…</p>
+      <div id="download-progress" style="display:none;">
+        <div id="download-bar-track">
+          <div id="download-bar-fill"></div>
+        </div>
+        <p id="download-detail"></p>
+      </div>
+    </div>
+  </div>
   <div id="image-frame">
     <canvas id="canvas" width="1024" height="1024"></canvas>
   </div>

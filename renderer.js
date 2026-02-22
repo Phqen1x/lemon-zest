@@ -37,6 +37,11 @@ const toolBrushBtn = document.getElementById('tool-brush');
 const toolLassoBtn = document.getElementById('tool-lasso');
 const toolRectBtn = document.getElementById('tool-rect');
 const toolCircleBtn = document.getElementById('tool-circle');
+const statusOverlay = document.getElementById('status-overlay');
+const overlayStatusText = document.getElementById('overlay-status-text');
+const downloadProgress = document.getElementById('download-progress');
+const downloadBarFill = document.getElementById('download-bar-fill');
+const downloadDetail = document.getElementById('download-detail');
 
 let imageLoaded = false;
 let isDrawing = false;
@@ -515,6 +520,7 @@ async function runInpaint() {
     console.error('Inpaint error:', err);
     if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
       setStatus('Connection Error: Is Lemonade Server running?');
+      waitForServerReady();
     } else {
       setStatus(`Error: ${err.message}`);
     }
@@ -592,3 +598,127 @@ function setStatus(text, spinning = false, latency = null) {
 document.getElementById('win-minimize').addEventListener('click', () => window.electronAPI.minimize());
 document.getElementById('win-maximize').addEventListener('click', () => window.electronAPI.maximize());
 document.getElementById('win-close').addEventListener('click', () => window.electronAPI.close());
+
+// --- Server health polling & progress overlay ---
+function formatBytes(bytes) {
+  if (bytes === 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  return (bytes / Math.pow(1024, i)).toFixed(1) + ' ' + units[i];
+}
+
+function showOverlay(text) {
+  overlayStatusText.textContent = text;
+  downloadProgress.style.display = 'none';
+  statusOverlay.style.display = 'flex';
+}
+
+function showDownloadProgress(model, status, completed, total) {
+  statusOverlay.style.display = 'flex';
+  overlayStatusText.textContent = status || `Downloading ${model}…`;
+  downloadProgress.style.display = 'block';
+
+  if (total > 0) {
+    const pct = Math.round((completed / total) * 100);
+    downloadBarFill.classList.remove('indeterminate');
+    downloadBarFill.style.width = pct + '%';
+    downloadDetail.textContent = `${formatBytes(completed)} / ${formatBytes(total)} (${pct}%)`;
+  } else {
+    downloadBarFill.classList.add('indeterminate');
+    downloadBarFill.style.width = '';
+    downloadDetail.textContent = completed > 0 ? formatBytes(completed) : '';
+  }
+}
+
+function hideDownloadProgress() {
+  downloadProgress.style.display = 'none';
+}
+
+function hideOverlay() {
+  statusOverlay.style.display = 'none';
+  hideDownloadProgress();
+}
+
+// Track whether a download is in progress so health polling doesn't hide it
+let downloadInProgress = false;
+let healthPollingActive = false;
+
+function connectLogStream() {
+  let eventSource;
+  try {
+    eventSource = new EventSource('http://localhost:8000/api/v1/logs/stream');
+  } catch (e) {
+    return;
+  }
+
+  eventSource.onmessage = (event) => {
+    const line = event.data;
+
+    // Match "[FLM]  Overall progress: 45%" or "Progress: 45%"
+    const pctMatch = line.match(/(?:Overall progress|Progress):\s*(\d+(?:\.\d+)?)%/i);
+    if (pctMatch) {
+      downloadInProgress = true;
+      const pct = parseFloat(pctMatch[1]);
+      showDownloadProgress('model', 'Downloading model…', pct, 100);
+      return;
+    }
+
+    // Match "[FLM]  Downloading: filename" or "[ModelManager] Downloading: model"
+    if (/\bDownloading[:\s]/i.test(line)) {
+      downloadInProgress = true;
+      const detail = line.replace(/.*\bDownloading[:\s]*/i, '').trim();
+      showDownloadProgress('model', `Downloading ${detail || 'model'}…`, 0, 0);
+      return;
+    }
+
+    // Match "[ModelManager] Downloaded: model" — download finished, waiting for load
+    if (/\bDownloaded[:\s]/i.test(line)) {
+      downloadInProgress = false;
+      showOverlay('Loading model…');
+      // Start polling to detect when model is fully loaded
+      if (!healthPollingActive) waitForServerReady();
+      return;
+    }
+  };
+
+  // Reconnect on error (server restart, etc.)
+  eventSource.onerror = () => {
+    eventSource.close();
+    setTimeout(connectLogStream, 2000);
+  };
+}
+
+async function waitForServerReady() {
+  if (healthPollingActive) return;
+  healthPollingActive = true;
+  showOverlay('Connecting to server…');
+
+  while (true) {
+    try {
+      const res = await fetch('http://localhost:8000/api/v1/health');
+      const data = await res.json();
+
+      if (data.status === 'ok' && !downloadInProgress) {
+        hideOverlay();
+        setStatus('Ready');
+        healthPollingActive = false;
+        return;
+      } else if (data.status === 'ok' && downloadInProgress) {
+        // Server is up but a download is active — overlay managed by SSE handler
+      } else if (data.error) {
+        showOverlay(`Server error: ${JSON.stringify(data.error)}`);
+      } else {
+        showOverlay('Waiting for server…');
+      }
+    } catch (e) {
+      showOverlay('Connecting to server…');
+    }
+
+    await new Promise(r => setTimeout(r, 1000));
+  }
+}
+
+// Start SSE log listener (runs for the lifetime of the app)
+connectLogStream();
+// Poll health until server is ready
+waitForServerReady();
