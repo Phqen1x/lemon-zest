@@ -61,6 +61,32 @@ let currentTool = 'rect'; // 'brush' | 'lasso' | 'rect' | 'circle'
 let lassoPath = [];         // array of {x, y} points
 let shapeStart = null;      // {x, y} for rect/circle drag start
 
+// --- Display scaling ---
+// Canvas backing store is always IMG_SIZE x IMG_SIZE.
+// CSS width/height scales it to fit the available content area.
+const contentArea = document.querySelector('.content');
+
+function fitCanvas() {
+  // Measure available space (content area minus image-frame border)
+  const borderSize = 3 * 2; // 3px border on each side
+  const pad = 16; // breathing room
+  const availW = contentArea.clientWidth - borderSize - pad;
+  const availH = contentArea.clientHeight - borderSize - pad;
+  const displaySize = Math.max(64, Math.min(availW, availH, IMG_SIZE));
+  canvas.style.width = displaySize + 'px';
+  canvas.style.height = displaySize + 'px';
+}
+
+// Convert mouse event coordinates from CSS space to canvas backing-store space
+function canvasCoords(e) {
+  const cw = canvas.clientWidth || canvas.width;
+  const scale = canvas.width / cw;
+  return { x: Math.round(e.offsetX * scale), y: Math.round(e.offsetY * scale) };
+}
+
+fitCanvas();
+window.addEventListener('resize', fitCanvas);
+
 // --- Brush slider ---
 brushSlider.addEventListener('input', () => {
   brushSize = parseInt(brushSlider.value, 10);
@@ -159,6 +185,7 @@ async function loadImage(filePath) {
 // --- Drawing ---
 canvas.addEventListener('mousedown', (e) => {
   if (!imageLoaded || inpaintInFlight) return;
+  const { x, y } = canvasCoords(e);
 
   // Save undo snapshot for all tools
   isDrawing = true;
@@ -167,25 +194,26 @@ canvas.addEventListener('mousedown', (e) => {
   undoBtn.disabled = false;
 
   if (currentTool === 'brush') {
-    paintMask(e.offsetX, e.offsetY);
+    paintMask(x, y);
   } else if (currentTool === 'lasso') {
-    lassoPath = [{ x: e.offsetX, y: e.offsetY }];
+    lassoPath = [{ x, y }];
     redraw();
   } else if (currentTool === 'rect' || currentTool === 'circle') {
-    shapeStart = { x: e.offsetX, y: e.offsetY };
+    shapeStart = { x, y };
     redraw();
   }
 });
 
 canvas.addEventListener('mousemove', (e) => {
-  cursorX = e.offsetX;
-  cursorY = e.offsetY;
+  const { x, y } = canvasCoords(e);
+  cursorX = x;
+  cursorY = y;
 
   if (isDrawing) {
     if (currentTool === 'brush') {
-      paintMask(e.offsetX, e.offsetY);
+      paintMask(x, y);
     } else if (currentTool === 'lasso') {
-      lassoPath.push({ x: e.offsetX, y: e.offsetY });
+      lassoPath.push({ x, y });
       redraw();
     } else {
       // rect or circle — just redraw for preview
@@ -750,8 +778,6 @@ connectLogStream();
 waitForServerReady();
 
 // --- Drag and drop ---
-const contentArea = document.querySelector('.content');
-
 contentArea.addEventListener('dragover', (e) => {
   e.preventDefault();
   contentArea.classList.add('drag-hover');
