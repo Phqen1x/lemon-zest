@@ -324,6 +324,43 @@
     font-family: monospace;
     color: #888;
   }
+
+  /* --- Inpaint Processing Overlay --- */
+  #inpaint-overlay {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    background: rgba(26, 26, 26, 0.65);
+    z-index: 20;
+    pointer-events: all;
+  }
+
+  #inpaint-overlay .inpaint-overlay-spinner {
+    width: 32px;
+    height: 32px;
+    border: 3px solid rgba(255, 255, 255, 0.15);
+    border-top-color: var(--yellow);
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+  }
+
+  #inpaint-overlay p {
+    color: var(--yellow);
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  /* Disabled state for toolbars during inpaint */
+  .toolbar.inpaint-disabled button,
+  .toolbar-row2.inpaint-disabled input,
+  .toolbar-row2.inpaint-disabled label {
+    opacity: 0.5;
+    pointer-events: none;
+  }
 </style>
 </head>
 <body>
@@ -378,6 +415,10 @@
   </div>
   <div id="image-frame">
     <canvas id="canvas" width="1024" height="1024"></canvas>
+    <div id="inpaint-overlay">
+      <div class="inpaint-overlay-spinner"></div>
+      <p>Inpainting…</p>
+    </div>
   </div>
   <div id="guide">
     <h2>Welcome to Lemon Zest</h2>

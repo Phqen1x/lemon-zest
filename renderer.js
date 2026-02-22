@@ -37,6 +37,9 @@ const toolBrushBtn = document.getElementById('tool-brush');
 const toolLassoBtn = document.getElementById('tool-lasso');
 const toolRectBtn = document.getElementById('tool-rect');
 const toolCircleBtn = document.getElementById('tool-circle');
+const inpaintOverlay = document.getElementById('inpaint-overlay');
+const toolbar = document.querySelector('.toolbar');
+const toolbarRow2 = document.querySelector('.toolbar-row2');
 const statusOverlay = document.getElementById('status-overlay');
 const overlayStatusText = document.getElementById('overlay-status-text');
 const downloadProgress = document.getElementById('download-progress');
@@ -140,7 +143,7 @@ async function loadImage(filePath) {
 
 // --- Drawing ---
 canvas.addEventListener('mousedown', (e) => {
-  if (!imageLoaded) return;
+  if (!imageLoaded || inpaintInFlight) return;
 
   // Save undo snapshot for all tools
   isDrawing = true;
@@ -469,6 +472,9 @@ async function runInpaint() {
   inpaintInFlight = true;
   setStatus('Inpainting...', true);
   imageFrame.classList.add('pulsing');
+  inpaintOverlay.style.display = 'flex';
+  toolbar.classList.add('inpaint-disabled');
+  toolbarRow2.classList.add('inpaint-disabled');
 
   const start = performance.now();
 
@@ -527,6 +533,9 @@ async function runInpaint() {
   } finally {
     inpaintInFlight = false;
     imageFrame.classList.remove('pulsing');
+    inpaintOverlay.style.display = 'none';
+    toolbar.classList.remove('inpaint-disabled');
+    toolbarRow2.classList.remove('inpaint-disabled');
   }
 }
 
