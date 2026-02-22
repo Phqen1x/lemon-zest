@@ -120,7 +120,18 @@
     border-color: var(--yellow-hover);
   }
 
+  .toolbar button:active:not(:disabled) {
+    filter: brightness(0.85);
+  }
+
   .toolbar .spacer { flex: 1; }
+
+  .toolbar-sep {
+    width: 1px;
+    height: 16px;
+    background: #555;
+    flex-shrink: 0;
+  }
 
   .toolbar label {
     font-size: 12px;
@@ -128,31 +139,11 @@
   }
 
   .toolbar input[type="range"] {
-    width: 120px;
-    accent-color: var(--yellow);
-  }
-
-  .toolbar-row2 {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 14px;
-    background: var(--bg-mid);
-    border-bottom: 1px solid #444;
-    flex-shrink: 0;
-  }
-
-  .toolbar-row2 label {
-    font-size: 12px;
-    color: #aaa;
-  }
-
-  .toolbar-row2 input[type="range"] {
     width: 100px;
     accent-color: var(--yellow);
   }
 
-  .toolbar-row2 input[type="text"] {
+  .toolbar input[type="text"] {
     flex: 1;
     min-width: 120px;
     padding: 4px 8px;
@@ -163,9 +154,13 @@
     font-size: 12px;
   }
 
-  .toolbar-row2 input[type="text"]:focus {
+  .toolbar input[type="text"]:focus {
     outline: none;
     border-color: var(--yellow);
+  }
+
+  .brush-only.hidden {
+    display: none;
   }
 
   /* --- Content --- */
@@ -354,10 +349,10 @@
     font-weight: 600;
   }
 
-  /* Disabled state for toolbars during inpaint */
+  /* Disabled state for toolbar during inpaint */
   .toolbar.inpaint-disabled button,
-  .toolbar-row2.inpaint-disabled input,
-  .toolbar-row2.inpaint-disabled label {
+  .toolbar.inpaint-disabled input,
+  .toolbar.inpaint-disabled label {
     opacity: 0.5;
     pointer-events: none;
   }
@@ -379,18 +374,19 @@
 <div class="toolbar">
   <button id="open-btn">Open</button>
   <button id="save-btn" disabled>Save As</button>
+  <div class="toolbar-sep"></div>
   <button id="undo-btn" disabled>Undo</button>
   <button id="reset-btn">Reset</button>
-  <button id="tool-brush" class="tool-toggle active" title="Brush tool (B)">Brush</button>
-  <button id="tool-lasso" class="tool-toggle" title="Lasso tool (L)">Lasso</button>
-  <button id="tool-rect" class="tool-toggle" title="Rectangle tool (R)">Rect</button>
-  <button id="tool-circle" class="tool-toggle" title="Circle tool (C)">Circle</button>
-  <span class="spacer"></span>
-  <label for="brush-slider">Brush</label>
-  <input type="range" id="brush-slider" min="5" max="150" step="5" value="30">
-</div>
-
-<div class="toolbar-row2">
+  <div class="toolbar-sep"></div>
+  <button id="tool-brush" class="tool-toggle active" title="Brush tool (B)">Brush B</button>
+  <button id="tool-lasso" class="tool-toggle" title="Lasso tool (L)">Lasso L</button>
+  <button id="tool-rect" class="tool-toggle" title="Rectangle tool (R)">Rect R</button>
+  <button id="tool-circle" class="tool-toggle" title="Circle tool (C)">Circle C</button>
+  <span class="brush-only" id="brush-slider-group">
+    <label for="brush-slider">Brush</label>
+    <input type="range" id="brush-slider" min="5" max="150" step="5" value="30">
+  </span>
+  <div class="toolbar-sep"></div>
   <label for="prompt-input">Prompt</label>
   <input type="text" id="prompt-input" value="seamless background fill" placeholder="Describe the fill...">
   <label for="strength-slider">Strength <span id="strength-value">0.75</span></label>

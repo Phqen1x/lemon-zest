@@ -39,7 +39,7 @@ const toolRectBtn = document.getElementById('tool-rect');
 const toolCircleBtn = document.getElementById('tool-circle');
 const inpaintOverlay = document.getElementById('inpaint-overlay');
 const toolbar = document.querySelector('.toolbar');
-const toolbarRow2 = document.querySelector('.toolbar-row2');
+const brushSliderGroup = document.getElementById('brush-slider-group');
 const statusOverlay = document.getElementById('status-overlay');
 const overlayStatusText = document.getElementById('overlay-status-text');
 const downloadProgress = document.getElementById('download-progress');
@@ -87,6 +87,8 @@ function setTool(tool) {
   toolRectBtn.classList.toggle('active', tool === 'rect');
   toolCircleBtn.classList.toggle('active', tool === 'circle');
   canvas.style.cursor = tool === 'brush' ? 'none' : 'crosshair';
+  // Show/hide brush slider
+  brushSliderGroup.classList.toggle('hidden', tool !== 'brush');
   // Cancel any in-progress shape
   lassoPath = [];
   shapeStart = null;
@@ -474,7 +476,6 @@ async function runInpaint() {
   imageFrame.classList.add('pulsing');
   inpaintOverlay.style.display = 'flex';
   toolbar.classList.add('inpaint-disabled');
-  toolbarRow2.classList.add('inpaint-disabled');
 
   const start = performance.now();
 
@@ -535,7 +536,6 @@ async function runInpaint() {
     imageFrame.classList.remove('pulsing');
     inpaintOverlay.style.display = 'none';
     toolbar.classList.remove('inpaint-disabled');
-    toolbarRow2.classList.remove('inpaint-disabled');
   }
 }
 
