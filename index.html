@@ -143,7 +143,7 @@
     accent-color: var(--yellow);
   }
 
-  .toolbar input[type="text"] {
+  .toolbar-row2 input[type="text"] {
     flex: 1;
     min-width: 120px;
     padding: 4px 8px;
@@ -154,7 +154,7 @@
     font-size: 12px;
   }
 
-  .toolbar input[type="text"]:focus {
+  .toolbar-row2 input[type="text"]:focus {
     outline: none;
     border-color: var(--yellow);
   }
@@ -354,7 +354,7 @@
     font-weight: 600;
   }
 
-  /* Disabled state for toolbar during inpaint */
+  /* Disabled state for toolbars during inpaint */
   .toolbar.inpaint-disabled button,
   .toolbar.inpaint-disabled input,
   .toolbar.inpaint-disabled label {
@@ -391,9 +391,12 @@
     <label for="brush-slider">Brush</label>
     <input type="range" id="brush-slider" min="5" max="150" step="5" value="30">
   </span>
-  <div class="toolbar-sep"></div>
+</div>
+
+<div class="toolbar toolbar-row2">
   <label for="prompt-input">Prompt</label>
   <input type="text" id="prompt-input" value="seamless background fill" placeholder="Describe the fill...">
+  <div class="toolbar-sep"></div>
   <label for="strength-slider">Strength <span id="strength-value">0.75</span></label>
   <input type="range" id="strength-slider" min="0" max="1" step="0.05" value="0.75">
   <label for="steps-slider">Steps <span id="steps-value">4</span></label>
