@@ -20,6 +20,12 @@ function createWindow() {
   });
 
   mainWindow.loadFile('index.html');
+
+  // Intercept system-level close (Alt+F4, etc.) and let renderer confirm
+  mainWindow.on('close', (event) => {
+    event.preventDefault();
+    mainWindow.webContents.send('check-close');
+  });
 }
 
 app.whenReady().then(createWindow);
@@ -59,4 +65,5 @@ ipcMain.on('window-maximize', () => {
   if (mainWindow.isMaximized()) mainWindow.unmaximize();
   else mainWindow.maximize();
 });
-ipcMain.on('window-close', () => mainWindow.close());
+// Renderer confirmed it's safe to close (no unsaved changes, or user accepted)
+ipcMain.on('confirm-close', () => mainWindow.destroy());

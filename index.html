@@ -166,11 +166,11 @@
   /* --- Content --- */
   .content {
     flex: 1;
+    min-height: 0;
+    min-width: 0;
     display: flex;
-    align-items: center;
-    justify-content: center;
     position: relative;
-    overflow: hidden;
+    overflow: auto;
   }
 
   .content.drag-hover {
@@ -183,6 +183,8 @@
     border-radius: 4px;
     line-height: 0;
     position: relative;
+    margin: auto;
+    flex-shrink: 0;
   }
 
   #image-frame.pulsing {
@@ -225,6 +227,15 @@
     font-size: 14px;
     text-align: center;
     line-height: 1.8;
+  }
+
+  #guide .guide-click-hint {
+    margin-top: 20px;
+    padding: 8px 20px;
+    border: 1px dashed #555;
+    border-radius: 6px;
+    color: #666;
+    font-size: 13px;
   }
 
   /* --- Status Bar --- */
@@ -363,6 +374,92 @@
     opacity: 0.5;
     pointer-events: none;
   }
+
+  /* --- Zoom controls --- */
+  #zoom-level-display {
+    font-size: 12px;
+    color: var(--text);
+    min-width: 40px;
+    text-align: center;
+    user-select: none;
+  }
+
+  /* --- Exit confirmation dialog --- */
+  .modal-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0, 0, 0, 0.65);
+    z-index: 2000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .modal-box {
+    background: var(--bg-mid);
+    border: 1px solid var(--yellow);
+    border-radius: 10px;
+    padding: 28px 32px;
+    max-width: 380px;
+    width: 90%;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .modal-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--yellow);
+    margin: 0;
+  }
+
+  .modal-text {
+    font-size: 13px;
+    color: #bbb;
+    margin: 0;
+    line-height: 1.5;
+  }
+
+  .modal-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 4px;
+  }
+
+  .modal-btn {
+    padding: 9px 16px;
+    border-radius: 6px;
+    border: none;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    text-align: center;
+  }
+
+  .modal-btn-primary {
+    background: var(--yellow);
+    color: var(--text-dark);
+  }
+
+  .modal-btn-primary:hover { background: var(--yellow-hover); }
+
+  .modal-btn-danger {
+    background: var(--bg-light);
+    color: var(--text);
+    border: 1px solid #555;
+  }
+
+  .modal-btn-danger:hover { background: #444; }
+
+  .modal-btn-cancel {
+    background: none;
+    color: #777;
+    border: 1px solid transparent;
+  }
+
+  .modal-btn-cancel:hover { color: var(--text); }
 </style>
 </head>
 <body>
@@ -393,6 +490,11 @@
     <label for="brush-slider">Size</label>
     <input type="range" id="brush-slider" min="5" max="150" step="5" value="30">
   </span>
+  <div class="spacer"></div>
+  <div class="toolbar-sep"></div>
+  <button id="zoom-out-btn" title="Zoom out (Ctrl+-)">&#x2212;</button>
+  <span id="zoom-level-display">100%</span>
+  <button id="zoom-in-btn" title="Zoom in (Ctrl+=)">&#x2B;</button>
 </div>
 
 <div class="toolbar toolbar-row2">
@@ -423,7 +525,8 @@
   </div>
   <div id="guide">
     <h2>Welcome to Lemon Zest</h2>
-    <p>1. Open an image<br>2. Paint or lasso an object to erase<br>3. Release to see the magic</p>
+    <p>Paint or lasso an object to erase it<br>Release to see the magic</p>
+    <p class="guide-click-hint">Click here or drag an image to get started</p>
   </div>
 </div>
 
@@ -432,6 +535,19 @@
   <div id="status-spinner"></div>
   <span id="status-text">Ready</span>
   <span id="latency-text"></span>
+</div>
+
+<!-- Exit Confirmation Dialog -->
+<div id="exit-dialog" class="modal-overlay" style="display: none;">
+  <div class="modal-box">
+    <p class="modal-title">Unsaved Changes</p>
+    <p class="modal-text">You have unsaved changes to your image. What would you like to do?</p>
+    <div class="modal-buttons">
+      <button id="exit-save-btn" class="modal-btn modal-btn-primary">&#x1F4BE; Save and Close</button>
+      <button id="exit-discard-btn" class="modal-btn modal-btn-danger">Close Without Saving</button>
+      <button id="exit-cancel-btn" class="modal-btn modal-btn-cancel">Cancel</button>
+    </div>
+  </div>
 </div>
 
 <script src="renderer.js"></script>

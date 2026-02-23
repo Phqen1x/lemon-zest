@@ -44,6 +44,7 @@ const downloadBarFill = document.getElementById('download-bar-fill');
 const downloadDetail = document.getElementById('download-detail');
 
 let imageLoaded = false;
+let imageModified = false;
 let isDrawing = false;
 let brushSize = 30;
 let undoStack = []; // stores ImageData snapshots of imageCanvas
@@ -57,6 +58,13 @@ let currentTool = 'rect'; // 'brush' | 'lasso' | 'rect' | 'circle'
 let lassoPath = [];         // array of {x, y} points
 let shapeStart = null;      // {x, y} for rect/circle drag start
 
+// Zoom state
+let zoomLevel = 1.0;
+const MIN_ZOOM = 0.25;
+const MAX_ZOOM = 4.0;
+const ZOOM_STEPS = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 4.0];
+const zoomLevelDisplay = document.getElementById('zoom-level-display');
+
 // --- Display scaling ---
 // Canvas backing store is always IMG_SIZE x IMG_SIZE.
 // CSS width/height scales it to fit the available content area.
@@ -68,9 +76,16 @@ function fitCanvas() {
   const pad = 16; // breathing room
   const availW = contentArea.clientWidth - borderSize - pad;
   const availH = contentArea.clientHeight - borderSize - pad;
-  const displaySize = Math.max(64, Math.min(availW, availH, IMG_SIZE));
+  const baseSize = Math.max(64, Math.min(availW, availH, IMG_SIZE));
+  const displaySize = Math.round(baseSize * zoomLevel);
   canvas.style.width = displaySize + 'px';
   canvas.style.height = displaySize + 'px';
+  zoomLevelDisplay.textContent = Math.round(zoomLevel * 100) + '%';
+}
+
+function setZoom(newZoom) {
+  zoomLevel = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, newZoom));
+  fitCanvas();
 }
 
 // Convert mouse event coordinates from CSS space to canvas backing-store space
@@ -82,6 +97,28 @@ function canvasCoords(e) {
 
 fitCanvas();
 window.addEventListener('resize', fitCanvas);
+// No image loaded at startup — show pointer cursor to hint the area is clickable
+canvas.style.cursor = 'pointer';
+
+// --- Zoom controls ---
+document.getElementById('zoom-in-btn').addEventListener('click', () => {
+  const next = ZOOM_STEPS.find(z => z > zoomLevel + 0.01);
+  setZoom(next !== undefined ? next : MAX_ZOOM);
+});
+
+document.getElementById('zoom-out-btn').addEventListener('click', () => {
+  const prev = [...ZOOM_STEPS].reverse().find(z => z < zoomLevel - 0.01);
+  setZoom(prev !== undefined ? prev : MIN_ZOOM);
+});
+
+// Ctrl+scroll (trackpad pinch or mouse) = zoom; plain scroll = pan
+contentArea.addEventListener('wheel', (e) => {
+  if (e.ctrlKey) {
+    e.preventDefault();
+    const factor = e.deltaY > 0 ? 0.9 : 1.1;
+    setZoom(zoomLevel * factor);
+  }
+}, { passive: false });
 
 // --- Brush slider ---
 brushSlider.addEventListener('input', () => {
@@ -100,7 +137,9 @@ function setTool(tool) {
   toolLassoBtn.classList.toggle('active', tool === 'lasso');
   toolRectBtn.classList.toggle('active', tool === 'rect');
   toolCircleBtn.classList.toggle('active', tool === 'circle');
-  canvas.style.cursor = tool === 'brush' ? 'none' : 'crosshair';
+  if (imageLoaded) {
+    canvas.style.cursor = tool === 'brush' ? 'none' : 'crosshair';
+  }
   // Show/hide brush slider
   brushSliderGroup.classList.toggle('hidden', tool !== 'brush');
   // Cancel any in-progress shape
@@ -123,6 +162,24 @@ document.addEventListener('keydown', (e) => {
     saveBtn.click();
     return;
   }
+  // Ctrl+= or Ctrl++ → Zoom in
+  if ((e.ctrlKey || e.metaKey) && (e.key === '=' || e.key === '+')) {
+    e.preventDefault();
+    document.getElementById('zoom-in-btn').click();
+    return;
+  }
+  // Ctrl+- → Zoom out
+  if ((e.ctrlKey || e.metaKey) && e.key === '-') {
+    e.preventDefault();
+    document.getElementById('zoom-out-btn').click();
+    return;
+  }
+  // Ctrl+0 → Reset zoom
+  if ((e.ctrlKey || e.metaKey) && e.key === '0') {
+    e.preventDefault();
+    setZoom(1.0);
+    return;
+  }
   if (e.target.tagName === 'INPUT') return;
   if (e.key === 'b' || e.key === 'B') setTool('brush');
   if (e.key === 'l' || e.key === 'L') setTool('lasso');
@@ -135,6 +192,13 @@ document.getElementById('open-btn').addEventListener('click', async () => {
   const filePath = await window.electronAPI.openFileDialog();
   if (!filePath) return;
   loadImage(filePath);
+});
+
+// Feature 1: clicking the content area when no image is loaded opens the file picker
+contentArea.addEventListener('click', () => {
+  if (!imageLoaded && statusOverlay.style.display === 'none') {
+    document.getElementById('open-btn').click();
+  }
 });
 
 async function loadImage(filePath) {
@@ -161,8 +225,10 @@ async function loadImage(filePath) {
     undoStack = [];
     undoBtn.disabled = true;
     imageLoaded = true;
+    imageModified = false;
     saveBtn.disabled = false;
     guide.style.display = 'none';
+    canvas.style.cursor = currentTool === 'brush' ? 'none' : 'crosshair';
     setStatus('Ready');
     redraw();
   };
@@ -527,6 +593,12 @@ async function loadImageModel() {
 async function runInpaint() {
   if (!imageLoaded || inpaintInFlight) return;
   inpaintInFlight = true;
+
+  // Snapshot the scroll position so we can restore it after the async inpaint.
+  // DOM changes during overlay show/hide can silently shift the scroll offset.
+  const savedScrollLeft = contentArea.scrollLeft;
+  const savedScrollTop = contentArea.scrollTop;
+
   setStatus('Inpainting...', true);
   imageFrame.classList.add('pulsing');
   inpaintOverlay.style.display = 'flex';
@@ -612,6 +684,9 @@ async function runInpaint() {
     inpaintOverlay.style.display = 'none';
     toolbar.classList.remove('inpaint-disabled');
     toolbarRow2.classList.remove('inpaint-disabled');
+    // Restore scroll position after all layout changes settle
+    contentArea.scrollLeft = savedScrollLeft;
+    contentArea.scrollTop = savedScrollTop;
   }
 }
 
@@ -623,19 +698,42 @@ async function applyResult(b64, bounds) {
     img.src = 'data:image/png;base64,' + b64;
   });
 
-  if (bounds) {
-    // Paste the cropped result back at the correct position
-    imageCtx.drawImage(img, bounds.x, bounds.y, bounds.w, bounds.h);
-  } else {
-    // Full image replacement
-    imageCtx.clearRect(0, 0, IMG_SIZE, IMG_SIZE);
-    imageCtx.drawImage(img, 0, 0);
+  // Work in backing-store coordinates for the region being updated
+  const rx = bounds ? bounds.x : 0;
+  const ry = bounds ? bounds.y : 0;
+  const rw = bounds ? bounds.w : IMG_SIZE;
+  const rh = bounds ? bounds.h : IMG_SIZE;
+
+  // Read original pixels and the mask for this region.
+  // The mask is still intact here — it gets reset below after compositing.
+  const origData   = imageCtx.getImageData(rx, ry, rw, rh);
+  const maskData   = maskCtx.getImageData(rx, ry, rw, rh);
+
+  // Decode the model result into pixel data (scale to region size if needed)
+  const tmpCanvas  = document.createElement('canvas');
+  tmpCanvas.width  = rw;
+  tmpCanvas.height = rh;
+  tmpCanvas.getContext('2d').drawImage(img, 0, 0, rw, rh);
+  const resultData = tmpCanvas.getContext('2d').getImageData(0, 0, rw, rh);
+
+  // Composite: use result pixels only where the mask is white (>200).
+  // Everywhere the mask is black, keep the original pixel unchanged.
+  // This prevents model drift in unmasked areas from bleeding into the image.
+  const composited = new ImageData(rw, rh);
+  for (let i = 0; i < maskData.data.length; i += 4) {
+    const src = maskData.data[i] > 200 ? resultData.data : origData.data;
+    composited.data[i]     = src[i];
+    composited.data[i + 1] = src[i + 1];
+    composited.data[i + 2] = src[i + 2];
+    composited.data[i + 3] = src[i + 3];
   }
+  imageCtx.putImageData(composited, rx, ry);
 
   // Reset mask
   maskCtx.fillStyle = '#000000';
   maskCtx.fillRect(0, 0, IMG_SIZE, IMG_SIZE);
 
+  imageModified = true;
   redraw();
 }
 
@@ -644,7 +742,10 @@ saveBtn.addEventListener('click', async () => {
   if (!imageLoaded) return;
   const dataURL = imageCanvas.toDataURL('image/png');
   const saved = await window.electronAPI.saveFileDialog(dataURL);
-  if (saved) setStatus(`Saved: ${saved}`);
+  if (saved) {
+    imageModified = false;
+    setStatus(`Saved: ${saved}`);
+  }
 });
 
 // --- Undo ---
@@ -655,6 +756,7 @@ undoBtn.addEventListener('click', () => {
   undoBtn.disabled = undoStack.length === 0;
   maskCtx.fillStyle = '#000000';
   maskCtx.fillRect(0, 0, IMG_SIZE, IMG_SIZE);
+  imageModified = true;
   redraw();
 });
 
@@ -669,6 +771,8 @@ document.getElementById('reset-btn').addEventListener('click', () => {
   undoBtn.disabled = true;
   saveBtn.disabled = true;
   imageLoaded = false;
+  imageModified = false;
+  canvas.style.cursor = 'pointer';
   guide.style.display = 'flex';
   setStatus('Reset');
 });
@@ -683,7 +787,41 @@ function setStatus(text, spinning = false, latency = null) {
 // --- Window controls ---
 document.getElementById('win-minimize').addEventListener('click', () => window.electronAPI.minimize());
 document.getElementById('win-maximize').addEventListener('click', () => window.electronAPI.maximize());
-document.getElementById('win-close').addEventListener('click', () => window.electronAPI.close());
+document.getElementById('win-close').addEventListener('click', () => handleCloseRequest());
+
+// Show exit dialog or close immediately based on unsaved state
+function handleCloseRequest() {
+  if (imageLoaded && imageModified) {
+    document.getElementById('exit-dialog').style.display = 'flex';
+  } else {
+    window.electronAPI.confirmClose();
+  }
+}
+
+// System-level close (Alt+F4, etc.) is routed through main.js → 'check-close' IPC
+window.electronAPI.onCheckClose(() => handleCloseRequest());
+
+// --- Exit dialog buttons ---
+document.getElementById('exit-save-btn').addEventListener('click', async () => {
+  document.getElementById('exit-dialog').style.display = 'none';
+  const dataURL = imageCanvas.toDataURL('image/png');
+  const saved = await window.electronAPI.saveFileDialog(dataURL);
+  if (saved) {
+    imageModified = false;
+    window.electronAPI.confirmClose();
+  } else {
+    // User cancelled the save dialog — keep the app open
+    document.getElementById('exit-dialog').style.display = 'flex';
+  }
+});
+
+document.getElementById('exit-discard-btn').addEventListener('click', () => {
+  window.electronAPI.confirmClose();
+});
+
+document.getElementById('exit-cancel-btn').addEventListener('click', () => {
+  document.getElementById('exit-dialog').style.display = 'none';
+});
 
 // --- Server health polling & progress overlay ---
 function formatBytes(bytes) {
@@ -815,8 +953,12 @@ contentArea.addEventListener('dragover', (e) => {
   contentArea.classList.add('drag-hover');
 });
 
-contentArea.addEventListener('dragleave', () => {
-  contentArea.classList.remove('drag-hover');
+// Only remove the highlight when the drag leaves the content area entirely
+// (not when moving over a child element, which would cause flickering)
+contentArea.addEventListener('dragleave', (e) => {
+  if (!contentArea.contains(e.relatedTarget)) {
+    contentArea.classList.remove('drag-hover');
+  }
 });
 
 contentArea.addEventListener('drop', (e) => {
@@ -824,8 +966,8 @@ contentArea.addEventListener('drop', (e) => {
   contentArea.classList.remove('drag-hover');
   const file = e.dataTransfer.files[0];
   if (!file || !file.type.startsWith('image/')) return;
-  // In Electron, files have a path property
-  if (file.path) {
-    loadImage(file.path);
-  }
+  // webUtils.getPathForFile() is the correct Electron 32+ API for getting
+  // the native file path from a File object with context isolation enabled
+  const filePath = window.electronAPI.getPathForFile(file);
+  if (filePath) loadImage(filePath);
 });

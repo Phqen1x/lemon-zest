@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
   openFileDialog: () => ipcRenderer.invoke('open-file-dialog'),
@@ -6,5 +6,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveFileDialog: (dataURL) => ipcRenderer.invoke('save-file-dialog', dataURL),
   minimize: () => ipcRenderer.send('window-minimize'),
   maximize: () => ipcRenderer.send('window-maximize'),
-  close: () => ipcRenderer.send('window-close')
+  confirmClose: () => ipcRenderer.send('confirm-close'),
+  onCheckClose: (callback) => ipcRenderer.on('check-close', callback),
+  getPathForFile: (file) => webUtils.getPathForFile(file)
 });
