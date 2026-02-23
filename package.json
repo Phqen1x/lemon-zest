@@ -4,7 +4,7 @@
   "description": "AI-powered object removal using local Lemonade Server",
   "main": "main.js",
   "scripts": {
-    "start": "electron .",
+    "start": "electron . --no-sandbox",
     "build": "electron-builder"
   },
   "build": {

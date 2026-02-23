@@ -502,6 +502,28 @@ function canvasToBase64(cvs) {
   return cvs.toDataURL('image/png').split(',')[1];
 }
 
+const IMAGE_MODEL = 'Flux-2-Klein-4B';
+
+// Trigger lemonade to load IMAGE_MODEL by making a minimal generation request,
+// which forces sdcpp to start with the right model.
+async function loadImageModel() {
+  setStatus('Loading model...', true);
+
+  const loadRes = await fetch('http://localhost:8000/api/v1/images/generations', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: IMAGE_MODEL, prompt: 'load', n: 1, size: '256x256' }),
+  });
+  if (!loadRes.ok) throw new Error(`Failed to load model: HTTP ${loadRes.status}`);
+
+  // Re-fetch health to get the backend_url now that sdcpp is running
+  const healthRes = await fetch('http://localhost:8000/api/v1/health');
+  const health = await healthRes.json();
+  const imageModel = health.all_models_loaded?.find(m => m.type === 'image');
+  if (!imageModel) throw new Error('Image model failed to start');
+  return imageModel;
+}
+
 async function runInpaint() {
   if (!imageLoaded || inpaintInFlight) return;
   inpaintInFlight = true;
@@ -537,11 +559,16 @@ async function runInpaint() {
       sendH = IMG_SIZE;
     }
 
-    // Get sd-server backend URL from health endpoint
+    // Hit lemonade-server first to confirm sdcpp is running with the right model.
+    // If not loaded, trigger loading before proceeding.
     const healthRes = await fetch('http://localhost:8000/api/v1/health');
     const health = await healthRes.json();
-    const backendUrl = health.all_models_loaded?.[0]?.backend_url
-      ?.replace(/\/v1$/, '') || 'http://127.0.0.1:8001';
+    let imageModel = health.all_models_loaded?.find(m => m.type === 'image');
+    if (!imageModel) {
+      imageModel = await loadImageModel();
+      setStatus('Inpainting...', true);
+    }
+    const backendUrl = imageModel.backend_url.replace(/\/v1$/, '');
 
     // Use /sdapi/v1/img2img which properly supports mask-based inpainting
     // (the OpenAI /v1/images/edits endpoint uses EDIT mode which ignores masks)
