@@ -29,10 +29,6 @@ const saveBtn = document.getElementById('save-btn');
 const brushSlider = document.getElementById('brush-slider');
 const imageFrame = document.getElementById('image-frame');
 const promptInput = document.getElementById('prompt-input');
-const strengthSlider = document.getElementById('strength-slider');
-const strengthValue = document.getElementById('strength-value');
-const stepsSlider = document.getElementById('steps-slider');
-const stepsValue = document.getElementById('steps-value');
 const toolBrushBtn = document.getElementById('tool-brush');
 const toolLassoBtn = document.getElementById('tool-lasso');
 const toolRectBtn = document.getElementById('tool-rect');
@@ -90,15 +86,6 @@ window.addEventListener('resize', fitCanvas);
 // --- Brush slider ---
 brushSlider.addEventListener('input', () => {
   brushSize = parseInt(brushSlider.value, 10);
-});
-
-// --- Parameter sliders ---
-strengthSlider.addEventListener('input', () => {
-  strengthValue.textContent = parseFloat(strengthSlider.value).toFixed(2);
-});
-
-stepsSlider.addEventListener('input', () => {
-  stepsValue.textContent = stepsSlider.value;
 });
 
 // --- Tool toggle ---
@@ -511,6 +498,10 @@ function canvasToBlob(cvs) {
   return new Promise((resolve) => cvs.toBlob(resolve, 'image/png'));
 }
 
+function canvasToBase64(cvs) {
+  return cvs.toDataURL('image/png').split(',')[1];
+}
+
 async function runInpaint() {
   if (!imageLoaded || inpaintInFlight) return;
   inpaintInFlight = true;
@@ -526,42 +517,56 @@ async function runInpaint() {
     // Find mask bounds and crop to just the masked region
     const bounds = getMaskBounds();
 
-    let imageBlob, maskBlob, sendSize;
+    let imageB64, maskB64, sendW, sendH;
 
     if (bounds) {
       // Cropped mode — send only the region around the mask
       const croppedImage = cropCanvas(imageCanvas, bounds);
       const croppedMask = cropCanvas(maskCanvas, bounds);
       console.log(`Crop: ${bounds.w}x${bounds.h} at (${bounds.x},${bounds.y}) vs full ${IMG_SIZE}x${IMG_SIZE}`);
-      imageBlob = await canvasToBlob(croppedImage);
-      maskBlob = await canvasToBlob(croppedMask);
-      sendSize = `${bounds.w}x${bounds.h}`;
+      imageB64 = canvasToBase64(croppedImage);
+      maskB64 = canvasToBase64(croppedMask);
+      sendW = bounds.w;
+      sendH = bounds.h;
     } else {
       // Full image mode — mask too large or covers most of the image
       console.log(`Sending full ${IMG_SIZE}x${IMG_SIZE} image`);
-      imageBlob = await canvasToBlob(imageCanvas);
-      maskBlob = await canvasToBlob(maskCanvas);
-      sendSize = `${IMG_SIZE}x${IMG_SIZE}`;
+      imageB64 = canvasToBase64(imageCanvas);
+      maskB64 = canvasToBase64(maskCanvas);
+      sendW = IMG_SIZE;
+      sendH = IMG_SIZE;
     }
 
-    const formData = new FormData();
-    formData.append('image', imageBlob, 'image.png');
-    formData.append('mask', maskBlob, 'mask.png');
-    formData.append('model', 'Flux-2-Klein-4B');
-    formData.append('prompt', promptInput.value || 'seamless background fill');
-    formData.append('size', sendSize);
-    formData.append('denoising_strength', strengthSlider.value);
-    formData.append('steps', stepsSlider.value);
+    // Get sd-server backend URL from health endpoint
+    const healthRes = await fetch('http://localhost:8000/api/v1/health');
+    const health = await healthRes.json();
+    const backendUrl = health.all_models_loaded?.[0]?.backend_url
+      ?.replace(/\/v1$/, '') || 'http://127.0.0.1:8001';
 
-    const res = await fetch('http://localhost:8000/api/v1/images/edits', {
+    // Use /sdapi/v1/img2img which properly supports mask-based inpainting
+    // (the OpenAI /v1/images/edits endpoint uses EDIT mode which ignores masks)
+    const payload = {
+      prompt: promptInput.value || 'seamless background fill',
+      init_images: [imageB64],
+      mask: maskB64,
+      denoising_strength: 0.75,
+      steps: 4,
+      cfg_scale: 1.0,
+      width: sendW,
+      height: sendH,
+      batch_size: 1,
+    };
+
+    const res = await fetch(`${backendUrl}/sdapi/v1/img2img`, {
       method: 'POST',
-      body: formData
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
     });
 
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
     const json = await res.json();
-    const b64 = json.data[0].b64_json;
+    const b64 = json.images?.[0] || json.data?.[0]?.b64_json;
 
     const latency = (performance.now() - start) / 1000;
     await applyResult(b64, bounds);
