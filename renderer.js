@@ -29,6 +29,10 @@ const saveBtn = document.getElementById('save-btn');
 const brushSlider = document.getElementById('brush-slider');
 const imageFrame = document.getElementById('image-frame');
 const promptInput = document.getElementById('prompt-input');
+const strengthSlider = document.getElementById('strength-slider');
+const strengthValue = document.getElementById('strength-value');
+const stepsSlider = document.getElementById('steps-slider');
+const stepsValue = document.getElementById('steps-value');
 const toolBrushBtn = document.getElementById('tool-brush');
 const toolLassoBtn = document.getElementById('tool-lasso');
 const toolRectBtn = document.getElementById('tool-rect');
@@ -123,6 +127,15 @@ contentArea.addEventListener('wheel', (e) => {
 // --- Brush slider ---
 brushSlider.addEventListener('input', () => {
   brushSize = parseInt(brushSlider.value, 10);
+});
+
+// --- Parameter sliders ---
+strengthSlider.addEventListener('input', () => {
+  strengthValue.textContent = parseFloat(strengthSlider.value).toFixed(2);
+});
+
+stepsSlider.addEventListener('input', () => {
+  stepsValue.textContent = stepsSlider.value;
 });
 
 // --- Tool toggle ---
@@ -568,27 +581,6 @@ function canvasToBase64(cvs) {
   return cvs.toDataURL('image/png').split(',')[1];
 }
 
-const IMAGE_MODEL = 'Flux-2-Klein-4B';
-
-// Trigger lemonade to load IMAGE_MODEL by making a minimal generation request,
-// which forces sdcpp to start with the right model.
-async function loadImageModel() {
-  setStatus('Loading model...', true);
-
-  const loadRes = await fetch('http://localhost:8000/api/v1/images/generations', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: IMAGE_MODEL, prompt: 'load', n: 1, size: '256x256' }),
-  });
-  if (!loadRes.ok) throw new Error(`Failed to load model: HTTP ${loadRes.status}`);
-
-  // Re-fetch health to get the backend_url now that sdcpp is running
-  const healthRes = await fetch('http://localhost:8000/api/v1/health');
-  const health = await healthRes.json();
-  const imageModel = health.all_models_loaded?.find(m => m.type === 'image');
-  if (!imageModel) throw new Error('Image model failed to start');
-  return imageModel;
-}
 
 async function runInpaint() {
   if (!imageLoaded || inpaintInFlight) return;
@@ -631,14 +623,14 @@ async function runInpaint() {
       sendH = IMG_SIZE;
     }
 
-    // Hit lemonade-server first to confirm sdcpp is running with the right model.
-    // If not loaded, trigger loading before proceeding.
+    // Get the backend URL from the health endpoint.
+    // The model must already be loaded — the startup overlay ensures this.
+    // We look for any model entry that has a backend_url, regardless of type name.
     const healthRes = await fetch('http://localhost:8000/api/v1/health');
     const health = await healthRes.json();
-    let imageModel = health.all_models_loaded?.find(m => m.type === 'image');
+    const imageModel = health.all_models_loaded?.find(m => m.backend_url);
     if (!imageModel) {
-      imageModel = await loadImageModel();
-      setStatus('Inpainting...', true);
+      throw new Error('Image model is not ready. Please wait for the model to finish loading.');
     }
     const backendUrl = imageModel.backend_url.replace(/\/v1$/, '');
 
@@ -648,8 +640,8 @@ async function runInpaint() {
       prompt: promptInput.value || 'seamless background fill',
       init_images: [imageB64],
       mask: maskB64,
-      denoising_strength: 0.75,
-      steps: 4,
+      denoising_strength: parseFloat(strengthSlider.value),
+      steps: parseInt(stepsSlider.value, 10),
       cfg_scale: 1.0,
       width: sendW,
       height: sendH,
@@ -666,17 +658,21 @@ async function runInpaint() {
 
     const json = await res.json();
     const b64 = json.images?.[0] || json.data?.[0]?.b64_json;
+    if (!b64) throw new Error('No image data in server response');
 
     const latency = (performance.now() - start) / 1000;
     await applyResult(b64, bounds);
     setStatus('Ready', false, latency);
   } catch (err) {
     console.error('Inpaint error:', err);
-    if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
+    // err may be a DOM Event (from img.onerror) rather than an Error instance,
+    // so guard against missing .message before calling .includes()
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
       setStatus('Connection Error: Is Lemonade Server running?');
       waitForServerReady();
     } else {
-      setStatus(`Error: ${err.message}`);
+      setStatus(`Error: ${msg}`);
     }
   } finally {
     inpaintInFlight = false;
@@ -684,6 +680,11 @@ async function runInpaint() {
     inpaintOverlay.style.display = 'none';
     toolbar.classList.remove('inpaint-disabled');
     toolbarRow2.classList.remove('inpaint-disabled');
+    // Always reset the mask and redraw so the red selection overlay doesn't
+    // stay on screen when applyResult() failed or was never reached
+    maskCtx.fillStyle = '#000000';
+    maskCtx.fillRect(0, 0, IMG_SIZE, IMG_SIZE);
+    redraw();
     // Restore scroll position after all layout changes settle
     contentArea.scrollLeft = savedScrollLeft;
     contentArea.scrollTop = savedScrollTop;
