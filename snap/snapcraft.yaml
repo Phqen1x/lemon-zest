@@ -40,6 +40,7 @@ parts:
     npm-node-version: "20.11.1"
     build-packages:
       - unzip
+      - git
     override-pull: |
       craftctl default
       VERSION=$(craftctl get version)
