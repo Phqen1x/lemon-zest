@@ -845,6 +845,9 @@ function getMaskBounds() {
   // Cap at full image size
   size = Math.min(size, IMG_SIZE);
 
+  // Round up to multiple of 8 — SD VAE requires dimensions divisible by 8
+  size = Math.min(Math.ceil(size / 8) * 8, IMG_SIZE);
+
   // Center the square on the mask bounding box center
   const cx = (minX + maxX) / 2;
   const cy = (minY + maxY) / 2;
@@ -898,25 +901,21 @@ async function runInpaint() {
     // Find mask bounds and crop to just the masked region
     const bounds = getMaskBounds();
 
-    let imageB64, maskB64, sendW, sendH;
-
-    if (bounds) {
-      // Cropped mode — send only the region around the mask
-      const croppedImage = cropCanvas(imageCanvas, bounds);
-      const croppedMask = cropCanvas(maskCanvas, bounds);
-      console.log(`Crop: ${bounds.w}x${bounds.h} at (${bounds.x},${bounds.y}) vs full ${IMG_SIZE}x${IMG_SIZE}`);
-      imageB64 = canvasToBase64(croppedImage);
-      maskB64 = canvasToBase64(croppedMask);
-      sendW = bounds.w;
-      sendH = bounds.h;
-    } else {
-      // Full image mode — mask too large or covers most of the image
-      console.log(`Sending full ${IMG_SIZE}x${IMG_SIZE} image`);
-      imageB64 = canvasToBase64(imageCanvas);
-      maskB64 = canvasToBase64(maskCanvas);
-      sendW = IMG_SIZE;
-      sendH = IMG_SIZE;
+    if (!bounds) {
+      // No mask content — nothing to inpaint
+      inpaintInFlight = false;
+      setStatus('Ready');
+      return;
     }
+
+    // Crop to just the masked region
+    const croppedImage = cropCanvas(imageCanvas, bounds);
+    const croppedMask = cropCanvas(maskCanvas, bounds);
+    console.log(`Crop: ${bounds.w}x${bounds.h} at (${bounds.x},${bounds.y}) vs full ${IMG_SIZE}x${IMG_SIZE}`);
+    const imageB64 = canvasToBase64(croppedImage);
+    const maskB64 = canvasToBase64(croppedMask);
+    const sendW = bounds.w;
+    const sendH = bounds.h;
 
     // Get the backend URL from the health endpoint.
     // The model must already be loaded — the startup overlay ensures this.
@@ -943,7 +942,7 @@ async function runInpaint() {
       batch_size: 1,
     };
 
-    console.log(`[inpaint] Sending ${sendW}x${sendH} to ${backendUrl}`);
+    console.log(`[inpaint] Sending ${sendW}x${sendH} to ${backendUrl}, strength=${payload.denoising_strength}, steps=${payload.steps}, img=${imageB64.length} chars, mask=${maskB64.length} chars`);
     inpaintController = new AbortController();
     inpaintAbortedByUser = false;
     const timeout = setTimeout(() => inpaintController.abort(), 300000); // 5 min timeout
