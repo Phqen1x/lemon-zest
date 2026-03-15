@@ -21,6 +21,14 @@ function createWindow() {
 
   mainWindow.loadFile('index.html');
 
+  // F12 to toggle DevTools
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.key === 'F12') {
+      mainWindow.webContents.toggleDevTools();
+      event.preventDefault();
+    }
+  });
+
   // Intercept system-level close (Alt+F4, etc.) and let renderer confirm
   mainWindow.on('close', (event) => {
     event.preventDefault();
@@ -36,6 +44,16 @@ ipcMain.handle('open-file-dialog', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openFile'],
     filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'bmp', 'webp'] }]
+  });
+  if (result.canceled) return null;
+  return result.filePaths[0];
+});
+
+ipcMain.handle('open-superimpose-dialog', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openFile'],
+    filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'bmp', 'webp'] }],
+    title: 'Select Image to Superimpose'
   });
   if (result.canceled) return null;
   return result.filePaths[0];
