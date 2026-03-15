@@ -159,7 +159,7 @@
     border-color: var(--yellow);
   }
 
-  .brush-only.hidden {
+  .brush-only.hidden, .fill-only.hidden {
     display: none;
   }
 
@@ -479,6 +479,8 @@
   <button id="open-btn" title="Open image">&#x1F4C2;</button>
   <button id="save-btn" disabled title="Save As (Ctrl+S)">&#x1F4BE;</button>
   <div class="toolbar-sep"></div>
+  <button id="superimpose-btn" disabled title="Superimpose image">&#x1F5BC;</button>
+  <div class="toolbar-sep"></div>
   <button id="undo-btn" disabled title="Undo (Ctrl+Z)">&#x21A9;</button>
   <button id="reset-btn" title="Reset canvas">&#x1F5D1;</button>
   <div class="toolbar-sep"></div>
@@ -486,9 +488,16 @@
   <button id="tool-lasso" class="tool-toggle" title="Lasso (L)">&#x2702;</button>
   <button id="tool-rect" class="tool-toggle active" title="Rectangle (R)">&#x25AD;</button>
   <button id="tool-circle" class="tool-toggle" title="Circle (C)">&#x25EF;</button>
+  <button id="tool-fill" class="tool-toggle" title="Fill (F)">&#x1F4A7;</button>
+  <div class="toolbar-sep"></div>
+  <button id="select-all-btn" disabled title="Select All (Ctrl+A)">&#x2B1C;</button>
   <span class="brush-only hidden" id="brush-slider-group">
     <label for="brush-slider">Size</label>
     <input type="range" id="brush-slider" min="5" max="150" step="5" value="30">
+  </span>
+  <span class="fill-only hidden" id="tolerance-slider-group">
+    <label for="tolerance-slider">Tolerance</label>
+    <input type="range" id="tolerance-slider" min="0" max="100" step="1" value="32">
   </span>
   <div class="spacer"></div>
   <div class="toolbar-sep"></div>
@@ -500,6 +509,14 @@
 <div class="toolbar toolbar-row2">
   <label for="prompt-input">Prompt</label>
   <input type="text" id="prompt-input" value="seamless background fill" placeholder="Describe the fill...">
+  <div class="toolbar-sep"></div>
+  <label for="strength-slider">Strength</label>
+  <input type="range" id="strength-slider" min="0.1" max="1.0" step="0.05" value="0.75">
+  <span id="strength-value">0.75</span>
+  <div class="toolbar-sep"></div>
+  <label for="steps-slider">Steps</label>
+  <input type="range" id="steps-slider" min="1" max="20" step="1" value="4">
+  <span id="steps-value">4</span>
 </div>
 
 <!-- Content -->

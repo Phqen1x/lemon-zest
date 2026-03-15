@@ -26,6 +26,7 @@ const statusSpinner = document.getElementById('status-spinner');
 const latencyText = document.getElementById('latency-text');
 const undoBtn = document.getElementById('undo-btn');
 const saveBtn = document.getElementById('save-btn');
+const superimposeBtn = document.getElementById('superimpose-btn');
 const brushSlider = document.getElementById('brush-slider');
 const imageFrame = document.getElementById('image-frame');
 const promptInput = document.getElementById('prompt-input');
@@ -37,6 +38,10 @@ const toolBrushBtn = document.getElementById('tool-brush');
 const toolLassoBtn = document.getElementById('tool-lasso');
 const toolRectBtn = document.getElementById('tool-rect');
 const toolCircleBtn = document.getElementById('tool-circle');
+const toolFillBtn = document.getElementById('tool-fill');
+const selectAllBtn = document.getElementById('select-all-btn');
+const toleranceSlider = document.getElementById('tolerance-slider');
+const toleranceSliderGroup = document.getElementById('tolerance-slider-group');
 const inpaintOverlay = document.getElementById('inpaint-overlay');
 const toolbar = document.querySelector('.toolbar');
 const toolbarRow2 = document.querySelector('.toolbar-row2');
@@ -51,6 +56,7 @@ let imageLoaded = false;
 let imageModified = false;
 let isDrawing = false;
 let brushSize = 30;
+let fillTolerance = 32;
 let undoStack = []; // stores ImageData snapshots of imageCanvas
 let debounceTimer = null;
 let inpaintInFlight = false;
@@ -58,7 +64,7 @@ let cursorX = null;
 let cursorY = null;
 
 // Tool state
-let currentTool = 'rect'; // 'brush' | 'lasso' | 'rect' | 'circle'
+let currentTool = 'rect'; // 'brush' | 'lasso' | 'rect' | 'circle' | 'fill'
 let lassoPath = [];         // array of {x, y} points
 let shapeStart = null;      // {x, y} for rect/circle drag start
 
@@ -99,6 +105,19 @@ function canvasCoords(e) {
   return { x: Math.round(e.offsetX * scale), y: Math.round(e.offsetY * scale) };
 }
 
+// Convert client (page) coordinates to clamped canvas backing-store space
+function canvasCoordsFromClient(clientX, clientY) {
+  const rect = canvas.getBoundingClientRect();
+  const cw = canvas.clientWidth || canvas.width;
+  const scale = canvas.width / cw;
+  const x = Math.round((clientX - rect.left) * scale);
+  const y = Math.round((clientY - rect.top) * scale);
+  return {
+    x: Math.max(0, Math.min(IMG_SIZE - 1, x)),
+    y: Math.max(0, Math.min(IMG_SIZE - 1, y))
+  };
+}
+
 fitCanvas();
 window.addEventListener('resize', fitCanvas);
 // No image loaded at startup — show pointer cursor to hint the area is clickable
@@ -129,6 +148,11 @@ brushSlider.addEventListener('input', () => {
   brushSize = parseInt(brushSlider.value, 10);
 });
 
+// --- Tolerance slider ---
+toleranceSlider.addEventListener('input', () => {
+  fillTolerance = parseInt(toleranceSlider.value, 10);
+});
+
 // --- Parameter sliders ---
 strengthSlider.addEventListener('input', () => {
   strengthValue.textContent = parseFloat(strengthSlider.value).toFixed(2);
@@ -143,6 +167,7 @@ toolBrushBtn.addEventListener('click', () => setTool('brush'));
 toolLassoBtn.addEventListener('click', () => setTool('lasso'));
 toolRectBtn.addEventListener('click', () => setTool('rect'));
 toolCircleBtn.addEventListener('click', () => setTool('circle'));
+toolFillBtn.addEventListener('click', () => setTool('fill'));
 
 function setTool(tool) {
   currentTool = tool;
@@ -150,11 +175,13 @@ function setTool(tool) {
   toolLassoBtn.classList.toggle('active', tool === 'lasso');
   toolRectBtn.classList.toggle('active', tool === 'rect');
   toolCircleBtn.classList.toggle('active', tool === 'circle');
+  toolFillBtn.classList.toggle('active', tool === 'fill');
   if (imageLoaded) {
     canvas.style.cursor = tool === 'brush' ? 'none' : 'crosshair';
   }
-  // Show/hide brush slider
+  // Show/hide tool-specific sliders
   brushSliderGroup.classList.toggle('hidden', tool !== 'brush');
+  toleranceSliderGroup.classList.toggle('hidden', tool !== 'fill');
   // Cancel any in-progress shape
   lassoPath = [];
   shapeStart = null;
@@ -193,11 +220,18 @@ document.addEventListener('keydown', (e) => {
     setZoom(1.0);
     return;
   }
+  // Ctrl+A → Select All
+  if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+    e.preventDefault();
+    selectAllBtn.click();
+    return;
+  }
   if (e.target.tagName === 'INPUT') return;
   if (e.key === 'b' || e.key === 'B') setTool('brush');
   if (e.key === 'l' || e.key === 'L') setTool('lasso');
   if (e.key === 'r' || e.key === 'R') setTool('rect');
   if (e.key === 'c' || e.key === 'C') setTool('circle');
+  if (e.key === 'f' || e.key === 'F') setTool('fill');
 });
 
 // --- Open image ---
@@ -240,6 +274,8 @@ async function loadImage(filePath) {
     imageLoaded = true;
     imageModified = false;
     saveBtn.disabled = false;
+    superimposeBtn.disabled = false;
+    selectAllBtn.disabled = false;
     guide.style.display = 'none';
     canvas.style.cursor = currentTool === 'brush' ? 'none' : 'crosshair';
     setStatus('Ready');
@@ -248,49 +284,98 @@ async function loadImage(filePath) {
   img.src = dataURL;
 }
 
-// --- Drawing ---
-canvas.addEventListener('mousedown', (e) => {
+// Superimpose an image at specified position (centered if x/y not provided)
+async function superimposeImage(filePath, x = null, y = null) {
   if (!imageLoaded || inpaintInFlight) return;
-  const { x, y } = canvasCoords(e);
 
-  // Save undo snapshot for all tools
-  isDrawing = true;
+  // Save undo snapshot
   undoStack.push(imageCtx.getImageData(0, 0, IMG_SIZE, IMG_SIZE));
   if (undoStack.length > 20) undoStack.shift();
   undoBtn.disabled = false;
 
-  if (currentTool === 'brush') {
-    paintMask(x, y);
-  } else if (currentTool === 'lasso') {
-    lassoPath = [{ x, y }];
-    redraw();
-  } else if (currentTool === 'rect' || currentTool === 'circle') {
-    shapeStart = { x, y };
-    redraw();
-  }
+  const dataURL = await window.electronAPI.readFileAsDataURL(filePath);
+  const img = new Image();
+  
+  img.onload = () => {
+    // Determine position: center if not specified
+    let targetX = x !== null ? x : IMG_SIZE / 2;
+    let targetY = y !== null ? y : IMG_SIZE / 2;
+
+    // Scale image if it's too large for the canvas
+    let w = img.width;
+    let h = img.height;
+    const maxSize = IMG_SIZE * 0.8; // Don't let it take up more than 80% of canvas
+    if (w > maxSize || h > maxSize) {
+      const scale = Math.min(maxSize / w, maxSize / h);
+      w = Math.round(w * scale);
+      h = Math.round(h * scale);
+    }
+
+    // Calculate top-left corner (image is centered on target position)
+    const dx = Math.round(targetX - w / 2);
+    const dy = Math.round(targetY - h / 2);
+
+    // Check if prompt is empty or generic (default prompt)
+    const prompt = promptInput.value.trim();
+    const isGenericPrompt = !prompt || prompt.toLowerCase() === 'seamless background fill';
+
+    if (isGenericPrompt) {
+      // Simple overlay mode - just draw the image directly
+      imageCtx.drawImage(img, dx, dy, w, h);
+      imageModified = true;
+      setStatus('Image superimposed');
+      redraw();
+    } else {
+      // Prompt-guided mode - create mask and use inpainting API
+      // First draw the superimposed image onto the canvas
+      imageCtx.drawImage(img, dx, dy, w, h);
+      
+      // Create white mask region where the image was placed
+      maskCtx.fillStyle = '#FFFFFF';
+      maskCtx.fillRect(dx, dy, w, h);
+
+      imageModified = true;
+      redraw();
+      
+      // Trigger inpainting with the provided prompt
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => runInpaint(), 400);
+    }
+  };
+  
+  img.src = dataURL;
+}
+
+// --- Superimpose button ---
+document.getElementById('superimpose-btn').addEventListener('click', async () => {
+  const filePath = await window.electronAPI.openSuperimposeDialog();
+  if (!filePath) return;
+  // Superimpose at center (no x, y specified)
+  superimposeImage(filePath);
 });
 
-canvas.addEventListener('mousemove', (e) => {
-  const { x, y } = canvasCoords(e);
+// --- Drawing ---
+
+// Document-level handlers for tracking mouse during drag (outside canvas)
+function onDragMove(e) {
+  const { x, y } = canvasCoordsFromClient(e.clientX, e.clientY);
   cursorX = x;
   cursorY = y;
 
-  if (isDrawing) {
-    if (currentTool === 'brush') {
-      paintMask(x, y);
-    } else if (currentTool === 'lasso') {
-      lassoPath.push({ x, y });
-      redraw();
-    } else {
-      // rect or circle — just redraw for preview
-      redraw();
-    }
+  if (currentTool === 'brush') {
+    paintMask(x, y);
+  } else if (currentTool === 'lasso') {
+    lassoPath.push({ x, y });
+    redraw();
   } else {
+    // rect or circle — just redraw for preview
     redraw();
   }
-});
+}
 
-canvas.addEventListener('mouseup', () => {
+function onDragEnd() {
+  document.removeEventListener('mousemove', onDragMove);
+  document.removeEventListener('mouseup', onDragEnd);
   if (!isDrawing) return;
   isDrawing = false;
 
@@ -319,35 +404,58 @@ canvas.addEventListener('mouseup', () => {
     shapeStart = null;
     redraw();
   }
+}
+
+canvas.addEventListener('mousedown', (e) => {
+  if (!imageLoaded || inpaintInFlight) return;
+  const { x, y } = canvasCoords(e);
+
+  // Save undo snapshot for all tools
+  undoStack.push(imageCtx.getImageData(0, 0, IMG_SIZE, IMG_SIZE));
+  if (undoStack.length > 20) undoStack.shift();
+  undoBtn.disabled = false;
+
+  if (currentTool === 'fill') {
+    // Fill is a single-click tool — no drag needed
+    console.log(`[fill] mousedown at (${x}, ${y}), tolerance=${fillTolerance}, imageLoaded=${imageLoaded}`);
+    floodFillMask(x, y, fillTolerance);
+    redraw();
+    schedulInpaint();
+    return;
+  }
+
+  isDrawing = true;
+
+  if (currentTool === 'brush') {
+    paintMask(x, y);
+  } else if (currentTool === 'lasso') {
+    lassoPath = [{ x, y }];
+    redraw();
+  } else if (currentTool === 'rect' || currentTool === 'circle') {
+    shapeStart = { x, y };
+    redraw();
+  }
+
+  // Track mouse globally so dragging outside the canvas still works
+  document.addEventListener('mousemove', onDragMove);
+  document.addEventListener('mouseup', onDragEnd);
+});
+
+canvas.addEventListener('mousemove', (e) => {
+  if (isDrawing) return; // handled by document-level listener
+  const { x, y } = canvasCoords(e);
+  cursorX = x;
+  cursorY = y;
+  redraw();
 });
 
 canvas.addEventListener('mouseleave', () => {
-  const hadDrawing = isDrawing;
-  cursorX = null;
-  cursorY = null;
-
-  if (hadDrawing) {
-    isDrawing = false;
-    if (currentTool === 'brush') {
-      redraw();
-      schedulInpaint();
-    } else if (currentTool === 'lasso') {
-      if (lassoPath.length >= 3) {
-        fillLassoMask();
-        schedulInpaint();
-      }
-      lassoPath = [];
-      redraw();
-    } else if (currentTool === 'rect' || currentTool === 'circle') {
-      // Cancel shape on leave — remove undo snapshot since nothing was applied
-      undoStack.pop();
-      undoBtn.disabled = undoStack.length === 0;
-      shapeStart = null;
-      redraw();
-    }
-  } else {
+  if (!isDrawing) {
+    cursorX = null;
+    cursorY = null;
     redraw();
   }
+  // When drawing, document-level listeners continue tracking
 });
 
 function paintMask(x, y) {
@@ -392,13 +500,85 @@ function fillCircleMask(x1, y1, x2, y2) {
   maskCtx.fill();
 }
 
+function floodFillMask(startX, startY, tolerance) {
+  console.log(`[floodFillMask] start=(${startX}, ${startY}), tolerance=${tolerance}`);
+  const imgData = imageCtx.getImageData(0, 0, IMG_SIZE, IMG_SIZE);
+  const pixels = imgData.data;
+  const maskData = maskCtx.getImageData(0, 0, IMG_SIZE, IMG_SIZE);
+  const mask = maskData.data;
+
+  const idx = (startY * IMG_SIZE + startX) * 4;
+  const targetR = pixels[idx];
+  const targetG = pixels[idx + 1];
+  const targetB = pixels[idx + 2];
+  console.log(`[floodFillMask] target color: rgb(${targetR}, ${targetG}, ${targetB})`);
+
+  const visited = new Uint8Array(IMG_SIZE * IMG_SIZE);
+  const stack = [startX + startY * IMG_SIZE];
+  visited[startX + startY * IMG_SIZE] = 1;
+  let filledCount = 0;
+
+  while (stack.length > 0) {
+    const pos = stack.pop();
+    const px = pos % IMG_SIZE;
+    const py = (pos - px) / IMG_SIZE;
+    const pi = pos * 4;
+
+    // Mark this pixel in the mask
+    mask[pi] = 255;
+    mask[pi + 1] = 255;
+    mask[pi + 2] = 255;
+    mask[pi + 3] = 255;
+    filledCount++;
+
+    // Check 4 neighbors
+    const neighbors = [];
+    if (px > 0) neighbors.push(pos - 1);
+    if (px < IMG_SIZE - 1) neighbors.push(pos + 1);
+    if (py > 0) neighbors.push(pos - IMG_SIZE);
+    if (py < IMG_SIZE - 1) neighbors.push(pos + IMG_SIZE);
+
+    for (const npos of neighbors) {
+      if (visited[npos]) continue;
+      visited[npos] = 1;
+      const ni = npos * 4;
+      const dr = Math.abs(pixels[ni] - targetR);
+      const dg = Math.abs(pixels[ni + 1] - targetG);
+      const db = Math.abs(pixels[ni + 2] - targetB);
+      if (dr <= tolerance && dg <= tolerance && db <= tolerance) {
+        stack.push(npos);
+      }
+    }
+  }
+
+  console.log(`[floodFillMask] filled ${filledCount} pixels`);
+  maskCtx.putImageData(maskData, 0, 0);
+}
+
+// --- Select All ---
+selectAllBtn.addEventListener('click', () => {
+  console.log(`[selectAll] clicked, imageLoaded=${imageLoaded}, inpaintInFlight=${inpaintInFlight}, disabled=${selectAllBtn.disabled}`);
+  if (!imageLoaded || inpaintInFlight) {
+    console.log('[selectAll] early return — imageLoaded or inpaintInFlight guard');
+    return;
+  }
+  undoStack.push(imageCtx.getImageData(0, 0, IMG_SIZE, IMG_SIZE));
+  if (undoStack.length > 20) undoStack.shift();
+  undoBtn.disabled = false;
+  maskCtx.fillStyle = '#ffffff';
+  maskCtx.fillRect(0, 0, IMG_SIZE, IMG_SIZE);
+  console.log('[selectAll] mask filled white, calling redraw + schedulInpaint');
+  redraw();
+  schedulInpaint();
+});
+
 function redraw() {
   // Always start by drawing the clean image
   ctx.clearRect(0, 0, IMG_SIZE, IMG_SIZE);
   ctx.drawImage(imageCanvas, 0, 0);
 
-  // Red overlay on masked areas while drawing or processing
-  if (isDrawing || inpaintInFlight) {
+  // Red overlay on masked areas while drawing, processing, or pending inpaint
+  if (isDrawing || inpaintInFlight || debounceTimer) {
     const maskData = maskCtx.getImageData(0, 0, IMG_SIZE, IMG_SIZE);
     const hasMask = maskData.data.some((v, i) => i % 4 === 0 && v > 200);
     if (hasMask) {
@@ -628,7 +808,7 @@ async function runInpaint() {
     // We look for any model entry that has a backend_url, regardless of type name.
     const healthRes = await fetch('http://localhost:8000/api/v1/health');
     const health = await healthRes.json();
-    const imageModel = health.all_models_loaded?.find(m => m.backend_url);
+    const imageModel = health.all_models_loaded?.find(m => m.type === 'image');
     if (!imageModel) {
       throw new Error('Image model is not ready. Please wait for the model to finish loading.');
     }
@@ -771,6 +951,7 @@ document.getElementById('reset-btn').addEventListener('click', () => {
   undoStack = [];
   undoBtn.disabled = true;
   saveBtn.disabled = true;
+  selectAllBtn.disabled = true;
   imageLoaded = false;
   imageModified = false;
   canvas.style.cursor = 'pointer';
@@ -913,9 +1094,27 @@ function connectLogStream() {
   };
 }
 
+async function triggerImageModelLoad() {
+  try {
+    const modelsRes = await fetch('http://localhost:8000/api/v1/models');
+    const modelsData = await modelsRes.json();
+    const imageModel = modelsData.data?.find(m => m.labels?.includes('image') && m.downloaded);
+    if (!imageModel) return;
+    // Fire generation request to trigger model loading — result ignored, health polling detects readiness
+    fetch('http://localhost:8000/api/v1/images/generations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: imageModel.id, prompt: 'load', n: 1, size: '256x256' }),
+    }).catch(() => {});
+  } catch (e) {
+    // Ignored — health polling will retry
+  }
+}
+
 async function waitForServerReady() {
   if (healthPollingActive) return;
   healthPollingActive = true;
+  let imageModelLoadTriggered = false;
   showOverlay('Connecting to server…');
 
   while (true) {
@@ -924,10 +1123,19 @@ async function waitForServerReady() {
       const data = await res.json();
 
       if (data.status === 'ok' && !downloadInProgress) {
-        hideOverlay();
-        setStatus('Ready');
-        healthPollingActive = false;
-        return;
+        const imageModel = data.all_models_loaded?.find(m => m.type === 'image');
+        if (imageModel) {
+          hideOverlay();
+          setStatus('Ready');
+          healthPollingActive = false;
+          return;
+        }
+        // Server is ready but no image model loaded yet — trigger loading once
+        if (!imageModelLoadTriggered) {
+          imageModelLoadTriggered = true;
+          triggerImageModelLoad();
+        }
+        showOverlay('Loading model…');
       } else if (data.status === 'ok' && downloadInProgress) {
         // Server is up but a download is active — overlay managed by SSE handler
       } else if (data.error) {
@@ -970,5 +1178,22 @@ contentArea.addEventListener('drop', (e) => {
   // webUtils.getPathForFile() is the correct Electron 32+ API for getting
   // the native file path from a File object with context isolation enabled
   const filePath = window.electronAPI.getPathForFile(file);
-  if (filePath) loadImage(filePath);
+  if (!filePath) return;
+
+  if (imageLoaded) {
+    // Superimpose mode - get drop coordinates in canvas space
+    const rect = canvas.getBoundingClientRect();
+    const cssX = e.clientX - rect.left;
+    const cssY = e.clientY - rect.top;
+    
+    // Convert CSS coordinates to canvas backing-store coordinates
+    const scale = canvas.width / canvas.clientWidth;
+    const canvasX = Math.round(cssX * scale);
+    const canvasY = Math.round(cssY * scale);
+    
+    superimposeImage(filePath, canvasX, canvasY);
+  } else {
+    // Load base image mode
+    loadImage(filePath);
+  }
 });
