@@ -1,11 +1,10 @@
 name: lemon-zest
-version: '1.0.0'
-summary: AI-powered object removal using local Lemonade Server
+adopt-info: lemon-zest
+summary: AI-powered image editor using local Lemonade Server
 description: |
-  Lemon Zest lets you remove unwanted objects from images using
-  AI-powered inpainting with a local Lemonade Server. Simply brush
-  over the area you want to erase and let the AI fill it in
-  seamlessly.
+  Lemon Zest lets you edit images using AI-powered inpainting
+  with a local Lemonade Server. Simply select the area you 
+  want to edit and let the AI seamlessly apply the desired change.
 base: core24
 confinement: strict
 grade: stable
@@ -41,6 +40,13 @@ parts:
     npm-node-version: "20.11.1"
     build-packages:
       - unzip
+    override-pull: |
+      craftctl default
+      VERSION=$(craftctl get version)
+      if [ -z $VERSION ]; then
+        VERSION=$(git describe --tags --abbrev=10)
+        craftctl set version=$VERSION
+      fi
     override-build: |
       craftctl default
       npx electron-builder --linux dir
