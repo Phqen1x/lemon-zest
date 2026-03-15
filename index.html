@@ -105,6 +105,11 @@
     background: var(--bg-light);
     color: #888;
     cursor: default;
+    pointer-events: auto;
+  }
+
+  .toolbar button:disabled:hover {
+    background: #333;
   }
 
   .toolbar button.tool-toggle {
@@ -114,14 +119,49 @@
     padding: 5px 12px;
   }
 
+  .toolbar button.tool-toggle:hover {
+    background: #333;
+  }
+
   .toolbar button.tool-toggle.active {
     background: var(--yellow);
     color: var(--text-dark);
     border-color: var(--yellow-hover);
   }
 
+  .toolbar button.tool-toggle.active:hover {
+    background: var(--yellow-hover);
+  }
+
   .toolbar button:active:not(:disabled) {
     filter: brightness(0.85);
+  }
+
+  /* --- Tooltips --- */
+  .toolbar button[data-tip] {
+    position: relative;
+  }
+
+  .toolbar button[data-tip]::after {
+    content: attr(data-tip);
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 4px 8px;
+    border-radius: 4px;
+    background: #111;
+    color: var(--text);
+    font-size: 11px;
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s;
+    z-index: 50;
+  }
+
+  .toolbar button[data-tip]:hover::after {
+    opacity: 1;
   }
 
   .toolbar .spacer { flex: 1; }
@@ -367,6 +407,22 @@
     font-weight: 600;
   }
 
+  #inpaint-overlay .abort-btn {
+    margin-top: 4px;
+    padding: 6px 18px;
+    border-radius: 6px;
+    border: 1px solid #888;
+    background: var(--bg-light);
+    color: var(--text);
+    font-size: 12px;
+    cursor: pointer;
+  }
+
+  #inpaint-overlay .abort-btn:hover {
+    background: #555;
+    border-color: var(--text);
+  }
+
   /* Disabled state for toolbars during inpaint */
   .toolbar.inpaint-disabled button,
   .toolbar.inpaint-disabled input,
@@ -460,6 +516,54 @@
   }
 
   .modal-btn-cancel:hover { color: var(--text); }
+
+  .modal-buttons-row {
+    flex-direction: row;
+    gap: 8px;
+  }
+
+  .modal-prompt-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .modal-radio {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--text);
+    cursor: pointer;
+  }
+
+  .modal-radio input[type="radio"] {
+    accent-color: var(--yellow);
+  }
+
+  .modal-prompt-preview {
+    margin: 0 0 4px 22px;
+    font-size: 12px;
+    color: #999;
+    font-style: italic;
+    word-break: break-word;
+  }
+
+  .modal-prompt-input {
+    margin-left: 22px;
+    padding: 5px 8px;
+    border-radius: 4px;
+    border: 1px solid #555;
+    background: var(--bg-light);
+    color: var(--text);
+    font-size: 12px;
+    width: calc(100% - 22px);
+  }
+
+  .modal-prompt-input:focus {
+    outline: none;
+    border-color: var(--yellow);
+  }
 </style>
 </head>
 <body>
@@ -476,21 +580,22 @@
 
 <!-- Toolbar -->
 <div class="toolbar">
-  <button id="open-btn" title="Open image">&#x1F4C2;</button>
-  <button id="save-btn" disabled title="Save As (Ctrl+S)">&#x1F4BE;</button>
+  <button id="open-btn" data-tip="Open image">&#x1F4C2;</button>
+  <button id="save-btn" disabled data-tip="Save As (Ctrl+S)">&#x1F4BE;</button>
   <div class="toolbar-sep"></div>
-  <button id="superimpose-btn" disabled title="Superimpose image">&#x1F5BC;</button>
+  <button id="superimpose-btn" disabled data-tip="Superimpose image">&#x1F5BC;</button>
   <div class="toolbar-sep"></div>
-  <button id="undo-btn" disabled title="Undo (Ctrl+Z)">&#x21A9;</button>
-  <button id="reset-btn" title="Reset canvas">&#x1F5D1;</button>
+  <button id="undo-btn" disabled data-tip="Undo (Ctrl+Z)">&#x21A9;</button>
+  <button id="redo-btn" disabled data-tip="Redo (Ctrl+Y)">&#x21AA;</button>
+  <button id="reset-btn" data-tip="Reset canvas">&#x1F5D1;</button>
   <div class="toolbar-sep"></div>
-  <button id="tool-brush" class="tool-toggle" title="Brush (B)">&#x1F58C;</button>
-  <button id="tool-lasso" class="tool-toggle" title="Lasso (L)">&#x2702;</button>
-  <button id="tool-rect" class="tool-toggle active" title="Rectangle (R)">&#x25AD;</button>
-  <button id="tool-circle" class="tool-toggle" title="Circle (C)">&#x25EF;</button>
-  <button id="tool-fill" class="tool-toggle" title="Fill (F)">&#x1F4A7;</button>
+  <button id="tool-brush" class="tool-toggle" data-tip="Brush (B)">&#x1F58C;</button>
+  <button id="tool-lasso" class="tool-toggle" data-tip="Lasso (L)">&#x2702;</button>
+  <button id="tool-rect" class="tool-toggle active" data-tip="Rectangle (R)">&#x25AD;</button>
+  <button id="tool-circle" class="tool-toggle" data-tip="Circle (C)">&#x25EF;</button>
+  <button id="tool-fill" class="tool-toggle" data-tip="Fill (F)">&#x1F4A7;</button>
   <div class="toolbar-sep"></div>
-  <button id="select-all-btn" disabled title="Select All (Ctrl+A)">&#x2B1C;</button>
+  <button id="select-all-btn" disabled data-tip="Select All (Ctrl+A)">&#x2B1C;</button>
   <span class="brush-only hidden" id="brush-slider-group">
     <label for="brush-slider">Size</label>
     <input type="range" id="brush-slider" min="5" max="150" step="5" value="30">
@@ -501,14 +606,15 @@
   </span>
   <div class="spacer"></div>
   <div class="toolbar-sep"></div>
-  <button id="zoom-out-btn" title="Zoom out (Ctrl+-)">&#x2212;</button>
+  <button id="zoom-out-btn" data-tip="Zoom out (Ctrl+-)">&#x2212;</button>
   <span id="zoom-level-display">100%</span>
-  <button id="zoom-in-btn" title="Zoom in (Ctrl+=)">&#x2B;</button>
+  <button id="zoom-in-btn" data-tip="Zoom in (Ctrl+=)">&#x2B;</button>
 </div>
 
 <div class="toolbar toolbar-row2">
   <label for="prompt-input">Prompt</label>
   <input type="text" id="prompt-input" value="seamless background fill" placeholder="Describe the fill...">
+  <button id="execute-btn" disabled data-tip="Execute (Enter)">&#x25B6;</button>
   <div class="toolbar-sep"></div>
   <label for="strength-slider">Strength</label>
   <input type="range" id="strength-slider" min="0.1" max="1.0" step="0.05" value="0.75">
@@ -538,6 +644,7 @@
     <div id="inpaint-overlay">
       <div class="inpaint-overlay-spinner"></div>
       <p>Inpainting…</p>
+      <button id="abort-btn" class="abort-btn">Cancel</button>
     </div>
   </div>
   <div id="guide">
@@ -563,6 +670,34 @@
       <button id="exit-save-btn" class="modal-btn modal-btn-primary">&#x1F4BE; Save and Close</button>
       <button id="exit-discard-btn" class="modal-btn modal-btn-danger">Close Without Saving</button>
       <button id="exit-cancel-btn" class="modal-btn modal-btn-cancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Superimpose Prompt Dialog -->
+<div id="superimpose-dialog" class="modal-overlay" style="display: none;">
+  <div class="modal-box">
+    <p class="modal-title">Superimpose Image</p>
+    <p class="modal-text">Choose a prompt for blending the dropped image:</p>
+    <div class="modal-prompt-group">
+      <label class="modal-radio">
+        <input type="radio" name="si-prompt-choice" value="current" checked>
+        <span>Use current prompt:</span>
+      </label>
+      <p id="si-current-prompt" class="modal-prompt-preview"></p>
+      <label class="modal-radio">
+        <input type="radio" name="si-prompt-choice" value="custom">
+        <span>Use a different prompt:</span>
+      </label>
+      <input type="text" id="si-custom-prompt" class="modal-prompt-input" placeholder="Describe how to blend...">
+      <label class="modal-radio">
+        <input type="radio" name="si-prompt-choice" value="none">
+        <span>No prompt (simple overlay)</span>
+      </label>
+    </div>
+    <div class="modal-buttons modal-buttons-row">
+      <button id="si-ok-btn" class="modal-btn modal-btn-primary">Apply</button>
+      <button id="si-cancel-btn" class="modal-btn modal-btn-cancel">Cancel</button>
     </div>
   </div>
 </div>
