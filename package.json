@@ -15,6 +15,14 @@
       "icon": "icon.png",
       "category": "Graphics"
     },
+    "win": {
+      "target": ["nsis", "portable"],
+      "icon": "icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
     "files": ["main.js", "preload.js", "renderer.js", "index.html", "icon.png"]
   },
   "dependencies": {},
