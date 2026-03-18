@@ -2,6 +2,7 @@
   "name": "lemon-zest",
   "version": "1.0.0",
   "description": "AI-powered object removal using local Lemonade Server",
+  "author": "Your Name <your@email.com>",
   "main": "main.js",
   "scripts": {
     "start": "electron . --no-sandbox",
