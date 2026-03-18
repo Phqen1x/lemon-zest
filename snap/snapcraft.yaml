@@ -44,8 +44,8 @@ parts:
     override-pull: |
       craftctl default
       VERSION=$(craftctl get version)
-      if [ -z $VERSION ]; then
-        VERSION=$(git describe --tags --abbrev=10)
+      if [ -z "$VERSION" ]; then
+        VERSION=$(git describe --tags --abbrev=10 2>/dev/null || node -p "require('./package.json').version")
         craftctl set version=$VERSION
       fi
     override-build: |
