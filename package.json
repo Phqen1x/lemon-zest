@@ -2,6 +2,7 @@
   "name": "lemon-zest",
   "version": "1.0.0",
   "description": "AI-powered object removal using local Lemonade Server",
+  "author": "Drew VanDIne <avandine23@gmail.com>",
   "main": "main.js",
   "scripts": {
     "start": "electron . --no-sandbox",
@@ -15,11 +16,19 @@
       "icon": "icon.png",
       "category": "Graphics"
     },
+    "win": {
+      "target": ["nsis", "portable"],
+      "icon": "snap/gui/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
     "files": ["main.js", "preload.js", "renderer.js", "index.html", "icon.png"]
   },
   "dependencies": {},
   "devDependencies": {
-    "electron": "^33.0.0",
+    "electron": "33.0.0",
     "electron-builder": "^25.0.0"
   }
 }

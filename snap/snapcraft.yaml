@@ -44,12 +44,14 @@ parts:
     override-pull: |
       craftctl default
       VERSION=$(craftctl get version)
-      if [ -z $VERSION ]; then
-        VERSION=$(git describe --tags --abbrev=10)
+      if [ -z "$VERSION" ]; then
+        VERSION=$(git describe --tags --abbrev=10 2>/dev/null || grep '"version"' package.json | sed 's/.*"version": *"\([^"]*\)".*/\1/')
         craftctl set version=$VERSION
       fi
     override-build: |
       craftctl default
+      rm -rf node_modules
+      npm install
       npx electron-builder --linux dir
       mkdir -p $CRAFT_PART_INSTALL/lemon-zest
       cp -a dist/linux-unpacked/* $CRAFT_PART_INSTALL/lemon-zest/
