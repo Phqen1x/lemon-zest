@@ -50,6 +50,7 @@ parts:
       fi
     override-build: |
       craftctl default
+      npm install
       npx electron-builder --linux dir
       mkdir -p $CRAFT_PART_INSTALL/lemon-zest
       cp -a dist/linux-unpacked/* $CRAFT_PART_INSTALL/lemon-zest/
