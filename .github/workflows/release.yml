@@ -18,7 +18,7 @@ jobs:
         run: npm install
 
       - name: Build Windows
-        run: npx electron-builder --win
+        run: npx electron-builder --win --publish never
 
       - name: Upload installer to release
         uses: softprops/action-gh-release@v2
