@@ -78,6 +78,8 @@ ipcMain.handle('save-file-dialog', async (event, dataURL) => {
   return filePath;
 });
 
+ipcMain.on('log', (event, ...args) => console.log(...args));
+
 ipcMain.on('window-minimize', () => mainWindow.minimize());
 ipcMain.on('window-maximize', () => {
   if (mainWindow.isMaximized()) mainWindow.unmaximize();

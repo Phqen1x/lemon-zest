@@ -9,5 +9,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   maximize: () => ipcRenderer.send('window-maximize'),
   confirmClose: () => ipcRenderer.send('confirm-close'),
   onCheckClose: (callback) => ipcRenderer.on('check-close', callback),
-  getPathForFile: (file) => webUtils.getPathForFile(file)
+  getPathForFile: (file) => webUtils.getPathForFile(file),
+  log: (...args) => ipcRenderer.send('log', ...args)
 });

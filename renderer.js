@@ -1205,6 +1205,7 @@ function hideOverlay() {
 // Track whether a download is in progress so health polling doesn't hide it
 let downloadInProgress = false;
 let healthPollingActive = false;
+let imageModelLoadTriggered = false;
 
 function connectLogStream() {
   let eventSource;
@@ -1237,6 +1238,7 @@ function connectLogStream() {
     // Match "[ModelManager] Downloaded: model" — download finished, waiting for load
     if (/\bDownloaded[:\s]/i.test(line)) {
       downloadInProgress = false;
+      imageModelLoadTriggered = false; // allow health polling to trigger model load
       showOverlay('Loading model…');
       // Start polling to detect when model is fully loaded
       if (!healthPollingActive) waitForServerReady();
@@ -1251,28 +1253,36 @@ function connectLogStream() {
   };
 }
 
+const IMAGE_MODEL_NAME = 'Flux-2-Klein-4B';
+
 async function triggerImageModelLoad() {
   try {
     const modelsRes = await fetch('http://localhost:8000/api/v1/models');
     const modelsData = await modelsRes.json();
     const imageModel = modelsData.data?.find(m => m.labels?.includes('image'));
-    if (!imageModel) return;
+    const modelName = imageModel?.id || IMAGE_MODEL_NAME;
 
-    // Fire generation request — this triggers both download (if needed) and model loading
-    fetch('http://localhost:8000/api/v1/images/generations', {
+    if (!imageModel) {
+      showOverlay('Downloading model…');
+      downloadInProgress = true;
+    }
+
+    // /api/v1/load auto-downloads if needed, then loads into memory
+    window.electronAPI.log('[triggerImageModelLoad] calling /api/v1/load for', modelName);
+    const res = await fetch('http://localhost:8000/api/v1/load', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: imageModel.id, prompt: 'load', n: 1, size: '256x256' }),
-    }).catch(() => {});
+      body: JSON.stringify({ model_name: modelName }),
+    });
+    window.electronAPI.log('[triggerImageModelLoad] /api/v1/load response:', res.status, await res.text().catch(() => ''));
   } catch (e) {
-    // Ignored — health polling will retry
+    window.electronAPI.log('[triggerImageModelLoad] error:', e.message);
   }
 }
 
 async function waitForServerReady() {
   if (healthPollingActive) return;
   healthPollingActive = true;
-  let imageModelLoadTriggered = false;
   showOverlay('Connecting to server…');
 
   while (true) {
@@ -1288,8 +1298,8 @@ async function waitForServerReady() {
           healthPollingActive = false;
           return;
         }
-        // Server is ready but no image model loaded yet — trigger loading once
-        if (!imageModelLoadTriggered) {
+        // Server is ready but no image model loaded yet — trigger download/load once
+        if (!imageModelLoadTriggered && !downloadInProgress) {
           imageModelLoadTriggered = true;
           triggerImageModelLoad();
         }
