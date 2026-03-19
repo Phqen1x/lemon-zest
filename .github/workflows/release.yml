@@ -2,7 +2,7 @@ name: Release
 
 on:
   release:
-    types: [published]
+    types: [created, edited]
 
 jobs:
   release-windows:
@@ -25,7 +25,10 @@ jobs:
       - name: Upload installer to release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.event.release.tag_name }}
           files: dist/*.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   release-snap:
     runs-on: ubuntu-latest
