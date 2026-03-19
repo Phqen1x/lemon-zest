@@ -28,7 +28,7 @@ Lemon Zest is a local, AI-powered image editor for object removal and inpainting
 
 Lemon Zest requires a running **Lemonade Server** to perform inpainting. The server handles model loading and inference locally.
 
-1. Install [Lemonade Server](https://github.com/lemonade-hq/lemonade) following its documentation.
+1. Install [Lemonade Server](https://github.com/lemonade-sdk/lemonade) following its documentation.
 2. Start the server:
    ```bash
    lemonade-server run Flux-2-Klein-4B
