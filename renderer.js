@@ -1258,19 +1258,7 @@ async function triggerImageModelLoad() {
     const imageModel = modelsData.data?.find(m => m.labels?.includes('image'));
     if (!imageModel) return;
 
-    if (!imageModel.downloaded) {
-      // Model exists but isn't downloaded — trigger download
-      showOverlay('Downloading model…');
-      downloadInProgress = true;
-      fetch('http://localhost:8000/api/v1/models/download', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: imageModel.id }),
-      }).catch(() => {});
-      return;
-    }
-
-    // Fire generation request to trigger model loading — result ignored, health polling detects readiness
+    // Fire generation request — this triggers both download (if needed) and model loading
     fetch('http://localhost:8000/api/v1/images/generations', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
