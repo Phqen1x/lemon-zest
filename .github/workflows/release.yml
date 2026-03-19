@@ -1,8 +1,9 @@
 name: Release
 
 on:
-  release:
-    types: [created, edited]
+  push:
+    tags:
+      - 'v*'
 
 jobs:
   release-windows:
@@ -25,7 +26,8 @@ jobs:
       - name: Upload installer to release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event.release.tag_name }}
+          draft: true
+          tag_name: ${{ github.ref_name }}
           files: dist/*.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
