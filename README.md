@@ -4,6 +4,15 @@ Lemon Zest is a local, AI-powered image editor for object removal and inpainting
 
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
+## Screenshots
+<div align="center">
+   <br><em>Splash screen of Lemon Zest when you first open the application.</em></br>
+   <img src="https://github.com/Phqen1x/lemon-zest/blob/main/assets/Splash.png" alt="Splash screen of Lemon Zest when you first open the application." width="600"/>
+   
+   <br><em>Lemon Zest inpainting selected regions of an image.</em></br>
+   <img src="https://github.com/Phqen1x/lemon-zest/blob/main/assets/Editing.png" alt="Lemon Zest inpainting selected regions of an image." width="600"/>
+</div>
+
 ## Features
 
 - **Multiple Selection Tools** — Rectangle (R), Circle (C), Lasso (L), Brush (B), and Flood Fill (F) with adjustable tolerance
