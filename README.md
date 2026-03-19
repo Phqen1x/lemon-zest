@@ -22,7 +22,7 @@ Lemon Zest requires a running **Lemonade Server** to perform inpainting. The ser
 1. Install [Lemonade Server](https://github.com/lemonade-hq/lemonade) following its documentation.
 2. Start the server:
    ```bash
-   lemonade run Flux-2-Klein-4B
+   lemonade-server run Flux-2-Klein-4B
    ```
    The server will listen on `http://localhost:8000`. The Flux model will be downloaded automatically on first launch.
 
