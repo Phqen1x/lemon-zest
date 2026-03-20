@@ -564,6 +564,89 @@
     outline: none;
     border-color: var(--yellow);
   }
+
+  /* --- Settings modal --- */
+  .settings-model-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 240px;
+    overflow-y: auto;
+  }
+
+  .settings-model-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    background: var(--bg-light);
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--text);
+    border: 1px solid transparent;
+  }
+
+  .settings-model-item:hover {
+    background: #444;
+  }
+
+  .settings-model-item.active {
+    border-color: var(--yellow);
+    background: rgba(255, 215, 0, 0.1);
+  }
+
+  .settings-model-item input[type="radio"] {
+    accent-color: var(--yellow);
+  }
+
+  .settings-model-note {
+    font-size: 11px;
+    color: #777;
+    margin-top: 4px;
+  }
+
+  .settings-loading {
+    text-align: center;
+    color: #888;
+    font-size: 13px;
+    padding: 16px 0;
+  }
+
+  .settings-server-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .settings-server-row label {
+    font-size: 12px;
+    color: #aaa;
+    flex-shrink: 0;
+  }
+
+  .settings-input {
+    padding: 5px 8px;
+    border-radius: 4px;
+    border: 1px solid #555;
+    background: var(--bg-light);
+    color: var(--text);
+    font-size: 12px;
+  }
+
+  .settings-input:focus {
+    outline: none;
+    border-color: var(--yellow);
+  }
+
+  .settings-server-row .settings-input {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .settings-port-input {
+    max-width: 80px;
+  }
 </style>
 </head>
 <body>
@@ -609,6 +692,8 @@
   <button id="zoom-out-btn" data-tip="Zoom out (Ctrl+-)">&#x2212;</button>
   <span id="zoom-level-display">100%</span>
   <button id="zoom-in-btn" data-tip="Zoom in (Ctrl+=)">&#x2B;</button>
+  <div class="toolbar-sep"></div>
+  <button id="settings-btn" data-tip="Settings">&#x2699;</button>
 </div>
 
 <div class="toolbar toolbar-row2">
@@ -698,6 +783,29 @@
     <div class="modal-buttons modal-buttons-row">
       <button id="si-ok-btn" class="modal-btn modal-btn-primary">Apply</button>
       <button id="si-cancel-btn" class="modal-btn modal-btn-cancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Settings Dialog -->
+<div id="settings-dialog" class="modal-overlay" style="display: none;">
+  <div class="modal-box">
+    <p class="modal-title">Settings</p>
+    <p class="modal-text">Server</p>
+    <div class="settings-server-row">
+      <label for="settings-host">Host</label>
+      <input type="text" id="settings-host" class="settings-input" placeholder="localhost">
+      <label for="settings-port">Port</label>
+      <input type="number" id="settings-port" class="settings-input settings-port-input" min="1" max="65535" placeholder="8000">
+    </div>
+    <p class="modal-text" style="margin-top: 12px;">Image Model</p>
+    <div id="settings-model-list" class="settings-model-list">
+      <p class="settings-loading">Loading models…</p>
+    </div>
+    <p class="settings-model-note">Only downloaded models are shown.</p>
+    <div class="modal-buttons modal-buttons-row">
+      <button id="settings-apply-btn" class="modal-btn modal-btn-primary" disabled>Apply</button>
+      <button id="settings-cancel-btn" class="modal-btn modal-btn-cancel">Cancel</button>
     </div>
   </div>
 </div>
