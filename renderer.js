@@ -46,6 +46,7 @@ const toleranceSliderGroup = document.getElementById('tolerance-slider-group');
 const inpaintOverlay = document.getElementById('inpaint-overlay');
 const toolbar = document.querySelector('.toolbar');
 const toolbarRow2 = document.querySelector('.toolbar-row2');
+const toolOptionsRow = document.getElementById('tool-options-row');
 const brushSliderGroup = document.getElementById('brush-slider-group');
 const statusOverlay = document.getElementById('status-overlay');
 const overlayStatusText = document.getElementById('overlay-status-text');
@@ -149,13 +150,17 @@ contentArea.addEventListener('wheel', (e) => {
 }, { passive: false });
 
 // --- Brush slider ---
+const brushSizeValue = document.getElementById('brush-size-value');
 brushSlider.addEventListener('input', () => {
   brushSize = parseInt(brushSlider.value, 10);
+  brushSizeValue.textContent = brushSize;
 });
 
 // --- Tolerance slider ---
+const toleranceValue = document.getElementById('tolerance-value');
 toleranceSlider.addEventListener('input', () => {
   fillTolerance = parseInt(toleranceSlider.value, 10);
+  toleranceValue.textContent = fillTolerance;
 });
 
 // --- Parameter sliders ---
@@ -184,9 +189,13 @@ function setTool(tool) {
   if (imageLoaded) {
     canvas.style.cursor = tool === 'brush' ? 'none' : 'crosshair';
   }
-  // Show/hide tool-specific sliders
-  brushSliderGroup.classList.toggle('hidden', tool !== 'brush');
-  toleranceSliderGroup.classList.toggle('hidden', tool !== 'fill');
+  // Show/hide tool options row with tool-specific controls
+  const hasBrush = tool === 'brush';
+  const hasFill = tool === 'fill';
+  const hasOptions = hasBrush || hasFill;
+  toolOptionsRow.style.display = hasOptions ? 'flex' : 'none';
+  brushSliderGroup.style.display = hasBrush ? 'inline-flex' : 'none';
+  toleranceSliderGroup.style.display = hasFill ? 'inline-flex' : 'none';
   // Cancel any in-progress shape
   lassoPath = [];
   shapeStart = null;
@@ -803,7 +812,7 @@ function redraw() {
 
 // --- Inpaint ---
 
-const CROP_PADDING = 64; // px of context around mask bounding box
+const CROP_PADDING = 256; // px of context around mask bounding box
 const MIN_CROP = 512;    // minimum crop dimension — sd models need reasonable sizes
 
 // Find bounding box of white pixels in the mask, return a square crop region
@@ -879,6 +888,136 @@ function canvasToBase64(cvs) {
   return cvs.toDataURL('image/png').split(',')[1];
 }
 
+// --- Mask preprocessing (ComfyUI-inspired) ---
+
+const MASK_GROW_PX = 6;     // dilate mask edges outward (ComfyUI default)
+const MASK_FEATHER_PX = 8;  // gaussian blur radius for soft edges
+
+// Grow (dilate) the mask by a given number of pixels using a box convolution.
+// Operates on an ImageData in-place; treats R channel as the mask value.
+function growMask(maskImageData, pixels) {
+  if (pixels <= 0) return;
+  const w = maskImageData.width;
+  const h = maskImageData.height;
+  const src = new Uint8Array(w * h);
+  const d = maskImageData.data;
+
+  // Extract single-channel mask
+  for (let i = 0; i < w * h; i++) src[i] = d[i * 4];
+
+  const dst = new Uint8Array(src);
+  const kernel = pixels;
+
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (src[y * w + x] > 200) continue; // already white
+      let found = false;
+      for (let ky = -kernel; ky <= kernel && !found; ky++) {
+        for (let kx = -kernel; kx <= kernel && !found; kx++) {
+          const ny = y + ky, nx = x + kx;
+          if (ny >= 0 && ny < h && nx >= 0 && nx < w && src[ny * w + nx] > 200) {
+            found = true;
+          }
+        }
+      }
+      if (found) dst[y * w + x] = 255;
+    }
+  }
+
+  // Write back
+  for (let i = 0; i < w * h; i++) {
+    d[i * 4] = d[i * 4 + 1] = d[i * 4 + 2] = dst[i];
+  }
+}
+
+// Apply gaussian blur to a single-channel mask for soft feathered edges.
+// Uses two-pass separable box blur approximation (3 passes ≈ gaussian).
+function featherMask(maskImageData, radius) {
+  if (radius <= 0) return;
+  const w = maskImageData.width;
+  const h = maskImageData.height;
+  const d = maskImageData.data;
+  const buf = new Float32Array(w * h);
+
+  // Extract single channel
+  for (let i = 0; i < w * h; i++) buf[i] = d[i * 4];
+
+  // 3-pass box blur approximation of gaussian
+  for (let pass = 0; pass < 3; pass++) {
+    // Horizontal pass
+    const hBuf = new Float32Array(w * h);
+    for (let y = 0; y < h; y++) {
+      let sum = 0;
+      const r = radius;
+      // Initialize window
+      for (let x = -r; x <= r; x++) {
+        sum += buf[y * w + Math.max(0, Math.min(w - 1, x))];
+      }
+      for (let x = 0; x < w; x++) {
+        hBuf[y * w + x] = sum / (2 * r + 1);
+        // Slide window
+        const addX = Math.min(w - 1, x + r + 1);
+        const remX = Math.max(0, x - r);
+        sum += buf[y * w + addX] - buf[y * w + remX];
+      }
+    }
+    // Vertical pass
+    const vBuf = new Float32Array(w * h);
+    for (let x = 0; x < w; x++) {
+      let sum = 0;
+      const r = radius;
+      for (let y = -r; y <= r; y++) {
+        sum += hBuf[Math.max(0, Math.min(h - 1, y)) * w + x];
+      }
+      for (let y = 0; y < h; y++) {
+        vBuf[y * w + x] = sum / (2 * r + 1);
+        const addY = Math.min(h - 1, y + r + 1);
+        const remY = Math.max(0, y - r);
+        sum += hBuf[addY * w + x] - hBuf[remY * w + x];
+      }
+    }
+    for (let i = 0; i < w * h; i++) buf[i] = vBuf[i];
+  }
+
+  // Write back — clamp to [0, 255]
+  for (let i = 0; i < w * h; i++) {
+    const v = Math.round(Math.max(0, Math.min(255, buf[i])));
+    d[i * 4] = d[i * 4 + 1] = d[i * 4 + 2] = v;
+  }
+}
+
+// Prepare the mask for sending: grow edges, then feather for soft transitions.
+// Returns a new canvas with the processed mask.
+function prepareMask(srcMaskCanvas, bounds) {
+  const cropped = cropCanvas(srcMaskCanvas, bounds);
+  const cCtx = cropped.getContext('2d');
+  const maskData = cCtx.getImageData(0, 0, bounds.w, bounds.h);
+  growMask(maskData, MASK_GROW_PX);
+  featherMask(maskData, MASK_FEATHER_PX);
+  cCtx.putImageData(maskData, 0, 0);
+  return cropped;
+}
+
+// Prepare the init image: zero out masked pixels to neutral gray (128).
+// This prevents the original content under the mask from biasing generation.
+function prepareInitImage(srcImageCanvas, srcMaskCanvas, bounds) {
+  const croppedImg = cropCanvas(srcImageCanvas, bounds);
+  const croppedMask = cropCanvas(srcMaskCanvas, bounds);
+  const imgCtx = croppedImg.getContext('2d');
+  const imgData = imgCtx.getImageData(0, 0, bounds.w, bounds.h);
+  const maskData = croppedMask.getContext('2d').getImageData(0, 0, bounds.w, bounds.h);
+
+  for (let i = 0; i < maskData.data.length; i += 4) {
+    if (maskData.data[i] > 200) {
+      imgData.data[i]     = 128; // R
+      imgData.data[i + 1] = 128; // G
+      imgData.data[i + 2] = 128; // B
+      // keep alpha
+    }
+  }
+  imgCtx.putImageData(imgData, 0, 0);
+  return croppedImg;
+}
 
 async function runInpaint() {
   if (!imageLoaded || inpaintInFlight) return;
@@ -893,6 +1032,7 @@ async function runInpaint() {
   imageFrame.classList.add('pulsing');
   inpaintOverlay.style.display = 'flex';
   toolbar.classList.add('inpaint-disabled');
+  toolOptionsRow.classList.add('inpaint-disabled');
   toolbarRow2.classList.add('inpaint-disabled');
 
   const start = performance.now();
@@ -908,9 +1048,11 @@ async function runInpaint() {
       return;
     }
 
-    // Crop to just the masked region
-    const croppedImage = cropCanvas(imageCanvas, bounds);
-    const croppedMask = cropCanvas(maskCanvas, bounds);
+    // Crop and preprocess for better inpainting quality:
+    // - Init image: masked pixels zeroed to neutral gray (prevents bias)
+    // - Mask: grown by 6px then feathered for soft edges (prevents seams)
+    const croppedImage = prepareInitImage(imageCanvas, maskCanvas, bounds);
+    const croppedMask = prepareMask(maskCanvas, bounds);
     console.log(`Crop: ${bounds.w}x${bounds.h} at (${bounds.x},${bounds.y}) vs full ${IMG_SIZE}x${IMG_SIZE}`);
     const imageB64 = canvasToBase64(croppedImage);
     const maskB64 = canvasToBase64(croppedMask);
@@ -920,7 +1062,7 @@ async function runInpaint() {
     // Get the backend URL from the health endpoint.
     // The model must already be loaded — the startup overlay ensures this.
     // We look for any model entry that has a backend_url, regardless of type name.
-    const healthRes = await fetch('http://localhost:8000/api/v1/health');
+    const healthRes = await fetch(`${serverUrl()}/api/v1/health`);
     const health = await healthRes.json();
     const imageModel = health.all_models_loaded?.find(m => m.type === 'image');
     if (!imageModel) {
@@ -932,6 +1074,7 @@ async function runInpaint() {
     // (the OpenAI /v1/images/edits endpoint uses EDIT mode which ignores masks)
     const payload = {
       prompt: oneTimePrompt || promptInput.value || 'seamless background fill',
+      negative_prompt: 'blurry, low quality, artifacts, seam, border, distorted',
       init_images: [imageB64],
       mask: maskB64,
       denoising_strength: parseFloat(strengthSlider.value),
@@ -940,6 +1083,8 @@ async function runInpaint() {
       width: sendW,
       height: sendH,
       batch_size: 1,
+      inpaint_full_res: true,
+      inpaint_full_res_padding: 96,
     };
 
     console.log(`[inpaint] Sending ${sendW}x${sendH} to ${backendUrl}, strength=${payload.denoising_strength}, steps=${payload.steps}, img=${imageB64.length} chars, mask=${maskB64.length} chars`);
@@ -961,7 +1106,7 @@ async function runInpaint() {
     if (!b64) throw new Error('No image data in server response');
 
     const latency = (performance.now() - start) / 1000;
-    await applyResult(b64, bounds);
+    await applyResult(b64, bounds, croppedMask);
     setStatus('Ready', false, latency);
     // Reset mask on success
     maskCtx.fillStyle = '#000000';
@@ -995,6 +1140,7 @@ async function runInpaint() {
     imageFrame.classList.remove('pulsing');
     inpaintOverlay.style.display = 'none';
     toolbar.classList.remove('inpaint-disabled');
+    toolOptionsRow.classList.remove('inpaint-disabled');
     toolbarRow2.classList.remove('inpaint-disabled');
     redraw();
     // Restore scroll position after all layout changes settle
@@ -1003,7 +1149,7 @@ async function runInpaint() {
   }
 }
 
-async function applyResult(b64, bounds) {
+async function applyResult(b64, bounds, processedMaskCanvas) {
   const img = new Image();
   await new Promise((resolve, reject) => {
     img.onload = resolve;
@@ -1017,10 +1163,17 @@ async function applyResult(b64, bounds) {
   const rw = bounds ? bounds.w : IMG_SIZE;
   const rh = bounds ? bounds.h : IMG_SIZE;
 
-  // Read original pixels and the mask for this region.
-  // The mask is still intact here — it gets reset below after compositing.
-  const origData   = imageCtx.getImageData(rx, ry, rw, rh);
-  const maskData   = maskCtx.getImageData(rx, ry, rw, rh);
+  // Read original pixels
+  const origData = imageCtx.getImageData(rx, ry, rw, rh);
+
+  // Use the processed (grown + feathered) mask for alpha blending.
+  // This produces smooth transitions at mask edges instead of hard seams.
+  let maskData;
+  if (processedMaskCanvas) {
+    maskData = processedMaskCanvas.getContext('2d').getImageData(0, 0, rw, rh);
+  } else {
+    maskData = maskCtx.getImageData(rx, ry, rw, rh);
+  }
 
   // Decode the model result into pixel data (scale to region size if needed)
   const tmpCanvas  = document.createElement('canvas');
@@ -1029,16 +1182,15 @@ async function applyResult(b64, bounds) {
   tmpCanvas.getContext('2d').drawImage(img, 0, 0, rw, rh);
   const resultData = tmpCanvas.getContext('2d').getImageData(0, 0, rw, rh);
 
-  // Composite: use result pixels only where the mask is white (>200).
-  // Everywhere the mask is black, keep the original pixel unchanged.
-  // This prevents model drift in unmasked areas from bleeding into the image.
+  // Alpha-blend composite using the feathered mask as blend factor.
+  // Mask value 255 = full result, 0 = full original, gradient = smooth blend.
   const composited = new ImageData(rw, rh);
   for (let i = 0; i < maskData.data.length; i += 4) {
-    const src = maskData.data[i] > 200 ? resultData.data : origData.data;
-    composited.data[i]     = src[i];
-    composited.data[i + 1] = src[i + 1];
-    composited.data[i + 2] = src[i + 2];
-    composited.data[i + 3] = src[i + 3];
+    const alpha = maskData.data[i] / 255.0;
+    composited.data[i]     = Math.round(resultData.data[i]     * alpha + origData.data[i]     * (1 - alpha));
+    composited.data[i + 1] = Math.round(resultData.data[i + 1] * alpha + origData.data[i + 1] * (1 - alpha));
+    composited.data[i + 2] = Math.round(resultData.data[i + 2] * alpha + origData.data[i + 2] * (1 - alpha));
+    composited.data[i + 3] = 255;
   }
   imageCtx.putImageData(composited, rx, ry);
 
@@ -1207,21 +1359,33 @@ let downloadInProgress = false;
 let healthPollingActive = false;
 let imageModelLoadTriggered = false;
 
+let activeEventSource = null;
+
 function connectLogStream() {
+  // Close any existing connection before opening a new one
+  if (activeEventSource) {
+    activeEventSource.close();
+    activeEventSource = null;
+  }
+
   let eventSource;
   try {
-    eventSource = new EventSource('http://localhost:8000/api/v1/logs/stream');
+    eventSource = new EventSource(`${serverUrl()}/api/v1/logs/stream`);
   } catch (e) {
     return;
   }
+  activeEventSource = eventSource;
 
   eventSource.onmessage = (event) => {
     const line = event.data;
 
+    // Only show download overlay if we initiated a download (default model auto-download).
+    // Downloads triggered by other means (e.g. another client) should not show the overlay.
+    if (!downloadInProgress) return;
+
     // Match "[FLM]  Overall progress: 45%" or "Progress: 45%"
     const pctMatch = line.match(/(?:Overall progress|Progress):\s*(\d+(?:\.\d+)?)%/i);
     if (pctMatch) {
-      downloadInProgress = true;
       const pct = parseFloat(pctMatch[1]);
       showDownloadProgress('model', 'Downloading model…', pct, 100);
       return;
@@ -1229,7 +1393,6 @@ function connectLogStream() {
 
     // Match "[FLM]  Downloading: filename" or "[ModelManager] Downloading: model"
     if (/\bDownloading[:\s]/i.test(line)) {
-      downloadInProgress = true;
       const detail = line.replace(/.*\bDownloading[:\s]*/i, '').trim();
       showDownloadProgress('model', `Downloading ${detail || 'model'}…`, 0, 0);
       return;
@@ -1253,32 +1416,308 @@ function connectLogStream() {
   };
 }
 
-const IMAGE_MODEL_NAME = 'Flux-2-Klein-4B';
+// --- Server connection ---
+const DEFAULT_SERVER_HOST = 'localhost';
+const DEFAULT_SERVER_PORT = 8000;
+let serverHost = localStorage.getItem('serverHost') || DEFAULT_SERVER_HOST;
+let serverPort = parseInt(localStorage.getItem('serverPort'), 10) || DEFAULT_SERVER_PORT;
+
+function serverUrl() {
+  return `http://${serverHost}:${serverPort}`;
+}
+
+const DEFAULT_IMAGE_MODEL = 'Flux-2-Klein-4B';
+let selectedModelName = localStorage.getItem('selectedImageModel') || DEFAULT_IMAGE_MODEL;
 
 async function triggerImageModelLoad() {
   try {
-    const modelsRes = await fetch('http://localhost:8000/api/v1/models');
-    const modelsData = await modelsRes.json();
-    const imageModel = modelsData.data?.find(m => m.labels?.includes('image'));
-    const modelName = imageModel?.id || IMAGE_MODEL_NAME;
+    // Only show the download overlay for the default model (first-launch auto-download).
+    // Models picked from settings are already downloaded on the server.
+    const isDefault = selectedModelName === DEFAULT_IMAGE_MODEL;
 
-    if (!imageModel) {
+    // Check if the model is already available on the server
+    const modelsRes = await fetch(`${serverUrl()}/api/v1/models`);
+    const modelsData = await modelsRes.json();
+    const modelExists = modelsData.data?.some(m => m.id === selectedModelName);
+
+    if (!modelExists && isDefault) {
       showOverlay('Downloading model…');
       downloadInProgress = true;
     }
 
     // /api/v1/load auto-downloads if needed, then loads into memory
-    window.electronAPI.log('[triggerImageModelLoad] calling /api/v1/load for', modelName);
-    const res = await fetch('http://localhost:8000/api/v1/load', {
+    window.electronAPI.log('[triggerImageModelLoad] calling /api/v1/load for', selectedModelName);
+    const res = await fetch(`${serverUrl()}/api/v1/load`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model_name: modelName }),
+      body: JSON.stringify({ model_name: selectedModelName }),
     });
-    window.electronAPI.log('[triggerImageModelLoad] /api/v1/load response:', res.status, await res.text().catch(() => ''));
+    const resText = await res.text().catch(() => '');
+    window.electronAPI.log('[triggerImageModelLoad] /api/v1/load response:', res.status, resText);
   } catch (e) {
     window.electronAPI.log('[triggerImageModelLoad] error:', e.message);
   }
 }
+
+// --- Settings dialog ---
+const settingsBtn = document.getElementById('settings-btn');
+const settingsDialog = document.getElementById('settings-dialog');
+const settingsModelList = document.getElementById('settings-model-list');
+const settingsApplyBtn = document.getElementById('settings-apply-btn');
+const settingsCancelBtn = document.getElementById('settings-cancel-btn');
+const settingsHostInput = document.getElementById('settings-host');
+const settingsPortInput = document.getElementById('settings-port');
+const settingsDropdown = document.getElementById('settings-dropdown');
+const settingsDropdownTrigger = document.getElementById('settings-dropdown-trigger');
+const settingsDropdownMenu = document.getElementById('settings-dropdown-menu');
+const settingsDownloadArea = document.getElementById('settings-download-area');
+const settingsDownloadName = document.getElementById('settings-download-name');
+const settingsDownloadBarFill = document.getElementById('settings-download-bar-fill');
+const settingsDownloadPct = document.getElementById('settings-download-pct');
+let settingsPendingModel = null;
+let settingsDownloadEventSource = null;
+
+function checkSettingsChanged() {
+  const hostChanged = settingsHostInput.value.trim() !== serverHost;
+  const portChanged = parseInt(settingsPortInput.value, 10) !== serverPort;
+  const modelChanged = settingsPendingModel && settingsPendingModel !== selectedModelName;
+  settingsApplyBtn.disabled = !(hostChanged || portChanged || modelChanged);
+}
+
+settingsHostInput.addEventListener('input', checkSettingsChanged);
+settingsPortInput.addEventListener('input', checkSettingsChanged);
+
+function buildDownloadedModelItem(model) {
+  const item = document.createElement('label');
+  item.className = 'settings-model-item';
+  if (model.id === selectedModelName) item.classList.add('active');
+
+  const radio = document.createElement('input');
+  radio.type = 'radio';
+  radio.name = 'settings-model';
+  radio.value = model.id;
+  if (model.id === selectedModelName) radio.checked = true;
+
+  const label = document.createElement('span');
+  label.textContent = model.id;
+
+  radio.addEventListener('change', () => {
+    settingsModelList.querySelectorAll('.settings-model-item').forEach(el => el.classList.remove('active'));
+    item.classList.add('active');
+    settingsPendingModel = model.id;
+    checkSettingsChanged();
+  });
+
+  item.appendChild(radio);
+  item.appendChild(label);
+  return item;
+}
+
+function startModelDownload(modelId) {
+  // Show download progress area
+  settingsDownloadArea.style.display = 'block';
+  settingsDownloadName.textContent = modelId;
+  settingsDownloadBarFill.style.width = '0%';
+  settingsDownloadPct.textContent = '0%';
+
+  // Disable the dropdown while downloading
+  settingsDropdown.classList.add('disabled');
+
+  // Listen to SSE for download progress
+  if (settingsDownloadEventSource) settingsDownloadEventSource.close();
+  settingsDownloadEventSource = new EventSource(`${serverUrl()}/api/v1/logs/stream`);
+  settingsDownloadEventSource.onmessage = (event) => {
+    const line = event.data;
+
+    const pctMatch = line.match(/(?:Overall progress|Progress):\s*(\d+(?:\.\d+)?)%/i);
+    if (pctMatch) {
+      const pct = parseFloat(pctMatch[1]);
+      settingsDownloadBarFill.style.width = pct + '%';
+      settingsDownloadPct.textContent = Math.round(pct) + '%';
+      return;
+    }
+
+    if (/\bDownloaded[:\s]/i.test(line)) {
+      // Download complete — add to downloaded list and clean up
+      if (settingsDownloadEventSource) {
+        settingsDownloadEventSource.close();
+        settingsDownloadEventSource = null;
+      }
+      settingsDownloadBarFill.style.width = '100%';
+      settingsDownloadPct.textContent = '100%';
+
+      // Add the newly downloaded model to the list
+      const newItem = buildDownloadedModelItem({ id: modelId });
+      settingsModelList.appendChild(newItem);
+
+      // Remove from dropdown
+      const option = settingsDropdownMenu.querySelector(`[data-model="${CSS.escape(modelId)}"]`);
+      if (option) option.remove();
+
+      // Auto-select it
+      const radio = newItem.querySelector('input[type="radio"]');
+      radio.checked = true;
+      radio.dispatchEvent(new Event('change'));
+
+      // Hide progress after a short delay
+      setTimeout(() => {
+        settingsDownloadArea.style.display = 'none';
+        settingsDropdown.classList.remove('disabled');
+      }, 800);
+      return;
+    }
+  };
+
+  settingsDownloadEventSource.onerror = () => {
+    settingsDownloadEventSource.close();
+    settingsDownloadEventSource = null;
+    settingsDropdown.classList.remove('disabled');
+  };
+
+  // Trigger the download via /api/v1/load
+  fetch(`${serverUrl()}/api/v1/load`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model_name: modelId }),
+  }).catch(() => {});
+}
+
+// Custom dropdown toggle
+settingsDropdownTrigger.addEventListener('click', () => {
+  if (settingsDropdown.classList.contains('disabled')) return;
+  settingsDropdownMenu.classList.toggle('open');
+});
+
+// Close dropdown when clicking outside
+document.addEventListener('click', (e) => {
+  if (!settingsDropdown.contains(e.target)) {
+    settingsDropdownMenu.classList.remove('open');
+  }
+});
+
+function addDropdownOption(modelId, sizeStr) {
+  const item = document.createElement('div');
+  item.className = 'settings-dropdown-option';
+  item.dataset.model = modelId;
+  item.innerHTML = modelId + (sizeStr ? `<span class="model-size">${sizeStr}</span>` : '');
+  item.addEventListener('click', () => {
+    settingsDropdownMenu.classList.remove('open');
+    if (confirm(`Download "${modelId}"? This may take a while depending on the model size.`)) {
+      startModelDownload(modelId);
+    }
+  });
+  settingsDropdownMenu.appendChild(item);
+}
+
+settingsBtn.addEventListener('click', async () => {
+  settingsDialog.style.display = 'flex';
+  settingsPendingModel = null;
+  settingsApplyBtn.disabled = true;
+  settingsHostInput.value = serverHost;
+  settingsPortInput.value = serverPort;
+  settingsModelList.innerHTML = '<p class="settings-loading">Loading models…</p>';
+  settingsDownloadArea.style.display = 'none';
+  settingsDropdownMenu.innerHTML = '';
+  settingsDropdownMenu.classList.remove('open');
+  settingsDropdown.classList.remove('disabled');
+
+  try {
+    // Fetch downloaded models and full catalog in parallel
+    const [dlRes, allRes] = await Promise.all([
+      fetch(`${serverUrl()}/api/v1/models`),
+      fetch(`${serverUrl()}/api/v1/models?show_all=true`),
+    ]);
+    const dlData = await dlRes.json();
+    const allData = await allRes.json();
+
+    const downloadedModels = (dlData.data || []).filter(m => m.labels?.includes('image'));
+    const allImageModels = (allData.data || []).filter(m => m.labels?.includes('image'));
+
+    // Build a set of downloaded model IDs for reliable diffing
+    const downloadedIds = new Set(downloadedModels.map(m => m.id));
+    const notDownloaded = allImageModels.filter(m => !downloadedIds.has(m.id));
+
+    console.log(`[settings] downloaded image models: ${downloadedModels.length}, available to download: ${notDownloaded.length}`);
+
+    if (downloadedModels.length === 0) {
+      settingsModelList.innerHTML = '<p class="settings-loading">No downloaded image models.</p>';
+    } else {
+      settingsModelList.innerHTML = '';
+      for (const model of downloadedModels) {
+        settingsModelList.appendChild(buildDownloadedModelItem(model));
+      }
+    }
+
+    // Populate dropdown with undownloaded models
+    if (notDownloaded.length > 0) {
+      for (const model of notDownloaded) {
+        const sizeStr = model.size ? `(${model.size.toFixed(1)} GB)` : '';
+        addDropdownOption(model.id, sizeStr);
+      }
+    } else {
+      const msg = document.createElement('div');
+      msg.className = 'settings-dropdown-option';
+      msg.style.color = '#888';
+      msg.style.cursor = 'default';
+      msg.textContent = 'All image models downloaded';
+      settingsDropdownMenu.appendChild(msg);
+    }
+  } catch (e) {
+    console.error('[settings] Failed to fetch models:', e);
+    settingsModelList.innerHTML = '<p class="settings-loading">Failed to fetch models. Is the server running?</p>';
+  }
+});
+
+settingsApplyBtn.addEventListener('click', () => {
+  const newHost = settingsHostInput.value.trim() || DEFAULT_SERVER_HOST;
+  const newPort = parseInt(settingsPortInput.value, 10) || DEFAULT_SERVER_PORT;
+  const hostChanged = newHost !== serverHost;
+  const portChanged = newPort !== serverPort;
+  const modelChanged = settingsPendingModel && settingsPendingModel !== selectedModelName;
+
+  if (!hostChanged && !portChanged && !modelChanged) return;
+
+  // Save server settings
+  if (hostChanged || portChanged) {
+    serverHost = newHost;
+    serverPort = newPort;
+    localStorage.setItem('serverHost', serverHost);
+    localStorage.setItem('serverPort', String(serverPort));
+  }
+
+  // Save model selection
+  if (modelChanged) {
+    selectedModelName = settingsPendingModel;
+    localStorage.setItem('selectedImageModel', selectedModelName);
+  }
+
+  settingsDialog.style.display = 'none';
+
+  // Reconnect to the (possibly new) server and load the (possibly new) model
+  imageModelLoadTriggered = false;
+  downloadInProgress = false;
+  healthPollingActive = false;
+  connectLogStream();
+  triggerImageModelLoad();
+  waitForServerReady();
+});
+
+settingsCancelBtn.addEventListener('click', () => {
+  if (settingsDownloadEventSource) {
+    settingsDownloadEventSource.close();
+    settingsDownloadEventSource = null;
+  }
+  settingsDialog.style.display = 'none';
+});
+
+settingsDialog.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    settingsDialog.style.display = 'none';
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    settingsApplyBtn.click();
+  }
+});
 
 async function waitForServerReady() {
   if (healthPollingActive) return;
@@ -1287,7 +1726,7 @@ async function waitForServerReady() {
 
   while (true) {
     try {
-      const res = await fetch('http://localhost:8000/api/v1/health');
+      const res = await fetch(`${serverUrl()}/api/v1/health`);
       const data = await res.json();
 
       if (data.status === 'ok' && !downloadInProgress) {
