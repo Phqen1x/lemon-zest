@@ -199,8 +199,16 @@
     border-color: var(--yellow);
   }
 
-  .brush-only.hidden, .fill-only.hidden {
-    display: none;
+  .toolbar-tool-options {
+    border-bottom: 1px solid #444;
+    padding: 4px 14px;
+    min-height: 0;
+  }
+
+  .toolbar-tool-options span {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
   }
 
   /* --- Content --- */
@@ -457,6 +465,8 @@
     border-radius: 10px;
     padding: 28px 32px;
     max-width: 380px;
+    max-height: 90vh;
+    overflow-y: auto;
     width: 90%;
     display: flex;
     flex-direction: column;
@@ -613,6 +623,123 @@
     padding: 16px 0;
   }
 
+  .settings-add-model-row {
+    margin-top: 6px;
+  }
+
+  .settings-dropdown {
+    position: relative;
+    width: 100%;
+  }
+
+  .settings-dropdown-trigger {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 10px;
+    border-radius: 6px;
+    border: 1px solid #555;
+    background: var(--bg-light);
+    color: var(--text);
+    font-size: 13px;
+    cursor: pointer;
+  }
+
+  .settings-dropdown-trigger:hover {
+    border-color: #888;
+  }
+
+  .settings-dropdown-arrow {
+    font-size: 10px;
+    color: #888;
+  }
+
+  .settings-dropdown-menu {
+    display: none;
+    position: absolute;
+    bottom: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    max-height: 200px;
+    overflow-y: auto;
+    background: var(--bg-mid);
+    border: 1px solid var(--yellow);
+    border-radius: 6px;
+    z-index: 2100;
+    box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.4);
+  }
+
+  .settings-dropdown-menu.open {
+    display: block;
+  }
+
+  .settings-dropdown-option {
+    padding: 8px 12px;
+    font-size: 12px;
+    color: var(--text);
+    cursor: pointer;
+  }
+
+  .settings-dropdown-option:hover {
+    background: var(--bg-light);
+  }
+
+  .settings-dropdown-option .model-size {
+    color: #888;
+    font-size: 11px;
+    margin-left: 4px;
+  }
+
+  .settings-dropdown.disabled .settings-dropdown-trigger {
+    opacity: 0.5;
+    cursor: default;
+    pointer-events: none;
+  }
+
+  .settings-download-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    background: var(--bg-light);
+    font-size: 12px;
+    color: var(--text);
+    margin-top: 6px;
+  }
+
+  .settings-download-row span:first-child {
+    flex-shrink: 0;
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .settings-download-bar-track {
+    flex: 1;
+    height: 6px;
+    background: var(--bg-dark);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+
+  .settings-download-bar-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--yellow);
+    border-radius: 3px;
+    transition: width 0.3s ease;
+  }
+
+  .settings-download-pct {
+    flex-shrink: 0;
+    min-width: 36px;
+    text-align: right;
+    color: #aaa;
+    font-size: 11px;
+  }
+
   .settings-server-row {
     display: flex;
     align-items: center;
@@ -679,14 +806,6 @@
   <button id="tool-fill" class="tool-toggle" data-tip="Fill (F)">&#x1F4A7;</button>
   <div class="toolbar-sep"></div>
   <button id="select-all-btn" disabled data-tip="Select All (Ctrl+A)">&#x2B1C;</button>
-  <span class="brush-only hidden" id="brush-slider-group">
-    <label for="brush-slider">Size</label>
-    <input type="range" id="brush-slider" min="5" max="150" step="5" value="30">
-  </span>
-  <span class="fill-only hidden" id="tolerance-slider-group">
-    <label for="tolerance-slider">Tolerance</label>
-    <input type="range" id="tolerance-slider" min="0" max="100" step="1" value="32">
-  </span>
   <div class="spacer"></div>
   <div class="toolbar-sep"></div>
   <button id="zoom-out-btn" data-tip="Zoom out (Ctrl+-)">&#x2212;</button>
@@ -694,6 +813,19 @@
   <button id="zoom-in-btn" data-tip="Zoom in (Ctrl+=)">&#x2B;</button>
   <div class="toolbar-sep"></div>
   <button id="settings-btn" data-tip="Settings">&#x2699;</button>
+</div>
+
+<div class="toolbar toolbar-tool-options" id="tool-options-row" style="display: none;">
+  <span id="brush-slider-group" style="display: none;">
+    <label for="brush-slider">Size</label>
+    <input type="range" id="brush-slider" min="5" max="150" step="5" value="30">
+    <span id="brush-size-value">30</span>
+  </span>
+  <span id="tolerance-slider-group" style="display: none;">
+    <label for="tolerance-slider">Tolerance</label>
+    <input type="range" id="tolerance-slider" min="0" max="100" step="1" value="32">
+    <span id="tolerance-value">32</span>
+  </span>
 </div>
 
 <div class="toolbar toolbar-row2">
@@ -789,7 +921,7 @@
 
 <!-- Settings Dialog -->
 <div id="settings-dialog" class="modal-overlay" style="display: none;">
-  <div class="modal-box">
+  <div class="modal-box" style="max-width: 440px;">
     <p class="modal-title">Settings</p>
     <p class="modal-text">Server</p>
     <div class="settings-server-row">
@@ -802,7 +934,24 @@
     <div id="settings-model-list" class="settings-model-list">
       <p class="settings-loading">Loading models…</p>
     </div>
-    <p class="settings-model-note">Only downloaded models are shown.</p>
+    <div id="settings-download-area" style="display: none;">
+      <div id="settings-download-info" class="settings-download-row">
+        <span id="settings-download-name"></span>
+        <div class="settings-download-bar-track">
+          <div id="settings-download-bar-fill" class="settings-download-bar-fill"></div>
+        </div>
+        <span id="settings-download-pct"></span>
+      </div>
+    </div>
+    <div class="settings-add-model-row" id="settings-add-model-row">
+      <div class="settings-dropdown" id="settings-dropdown">
+        <div class="settings-dropdown-trigger" id="settings-dropdown-trigger">
+          <span>Add a model…</span>
+          <span class="settings-dropdown-arrow">&#x25BC;</span>
+        </div>
+        <div class="settings-dropdown-menu" id="settings-dropdown-menu"></div>
+      </div>
+    </div>
     <div class="modal-buttons modal-buttons-row">
       <button id="settings-apply-btn" class="modal-btn modal-btn-primary" disabled>Apply</button>
       <button id="settings-cancel-btn" class="modal-btn modal-btn-cancel">Cancel</button>

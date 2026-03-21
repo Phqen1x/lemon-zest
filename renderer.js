@@ -46,6 +46,7 @@ const toleranceSliderGroup = document.getElementById('tolerance-slider-group');
 const inpaintOverlay = document.getElementById('inpaint-overlay');
 const toolbar = document.querySelector('.toolbar');
 const toolbarRow2 = document.querySelector('.toolbar-row2');
+const toolOptionsRow = document.getElementById('tool-options-row');
 const brushSliderGroup = document.getElementById('brush-slider-group');
 const statusOverlay = document.getElementById('status-overlay');
 const overlayStatusText = document.getElementById('overlay-status-text');
@@ -149,13 +150,17 @@ contentArea.addEventListener('wheel', (e) => {
 }, { passive: false });
 
 // --- Brush slider ---
+const brushSizeValue = document.getElementById('brush-size-value');
 brushSlider.addEventListener('input', () => {
   brushSize = parseInt(brushSlider.value, 10);
+  brushSizeValue.textContent = brushSize;
 });
 
 // --- Tolerance slider ---
+const toleranceValue = document.getElementById('tolerance-value');
 toleranceSlider.addEventListener('input', () => {
   fillTolerance = parseInt(toleranceSlider.value, 10);
+  toleranceValue.textContent = fillTolerance;
 });
 
 // --- Parameter sliders ---
@@ -184,9 +189,13 @@ function setTool(tool) {
   if (imageLoaded) {
     canvas.style.cursor = tool === 'brush' ? 'none' : 'crosshair';
   }
-  // Show/hide tool-specific sliders
-  brushSliderGroup.classList.toggle('hidden', tool !== 'brush');
-  toleranceSliderGroup.classList.toggle('hidden', tool !== 'fill');
+  // Show/hide tool options row with tool-specific controls
+  const hasBrush = tool === 'brush';
+  const hasFill = tool === 'fill';
+  const hasOptions = hasBrush || hasFill;
+  toolOptionsRow.style.display = hasOptions ? 'flex' : 'none';
+  brushSliderGroup.style.display = hasBrush ? 'inline-flex' : 'none';
+  toleranceSliderGroup.style.display = hasFill ? 'inline-flex' : 'none';
   // Cancel any in-progress shape
   lassoPath = [];
   shapeStart = null;
@@ -1023,6 +1032,7 @@ async function runInpaint() {
   imageFrame.classList.add('pulsing');
   inpaintOverlay.style.display = 'flex';
   toolbar.classList.add('inpaint-disabled');
+  toolOptionsRow.classList.add('inpaint-disabled');
   toolbarRow2.classList.add('inpaint-disabled');
 
   const start = performance.now();
@@ -1130,6 +1140,7 @@ async function runInpaint() {
     imageFrame.classList.remove('pulsing');
     inpaintOverlay.style.display = 'none';
     toolbar.classList.remove('inpaint-disabled');
+    toolOptionsRow.classList.remove('inpaint-disabled');
     toolbarRow2.classList.remove('inpaint-disabled');
     redraw();
     // Restore scroll position after all layout changes settle
@@ -1456,7 +1467,15 @@ const settingsApplyBtn = document.getElementById('settings-apply-btn');
 const settingsCancelBtn = document.getElementById('settings-cancel-btn');
 const settingsHostInput = document.getElementById('settings-host');
 const settingsPortInput = document.getElementById('settings-port');
+const settingsDropdown = document.getElementById('settings-dropdown');
+const settingsDropdownTrigger = document.getElementById('settings-dropdown-trigger');
+const settingsDropdownMenu = document.getElementById('settings-dropdown-menu');
+const settingsDownloadArea = document.getElementById('settings-download-area');
+const settingsDownloadName = document.getElementById('settings-download-name');
+const settingsDownloadBarFill = document.getElementById('settings-download-bar-fill');
+const settingsDownloadPct = document.getElementById('settings-download-pct');
 let settingsPendingModel = null;
+let settingsDownloadEventSource = null;
 
 function checkSettingsChanged() {
   const hostChanged = settingsHostInput.value.trim() !== serverHost;
@@ -1468,6 +1487,128 @@ function checkSettingsChanged() {
 settingsHostInput.addEventListener('input', checkSettingsChanged);
 settingsPortInput.addEventListener('input', checkSettingsChanged);
 
+function buildDownloadedModelItem(model) {
+  const item = document.createElement('label');
+  item.className = 'settings-model-item';
+  if (model.id === selectedModelName) item.classList.add('active');
+
+  const radio = document.createElement('input');
+  radio.type = 'radio';
+  radio.name = 'settings-model';
+  radio.value = model.id;
+  if (model.id === selectedModelName) radio.checked = true;
+
+  const label = document.createElement('span');
+  label.textContent = model.id;
+
+  radio.addEventListener('change', () => {
+    settingsModelList.querySelectorAll('.settings-model-item').forEach(el => el.classList.remove('active'));
+    item.classList.add('active');
+    settingsPendingModel = model.id;
+    checkSettingsChanged();
+  });
+
+  item.appendChild(radio);
+  item.appendChild(label);
+  return item;
+}
+
+function startModelDownload(modelId) {
+  // Show download progress area
+  settingsDownloadArea.style.display = 'block';
+  settingsDownloadName.textContent = modelId;
+  settingsDownloadBarFill.style.width = '0%';
+  settingsDownloadPct.textContent = '0%';
+
+  // Disable the dropdown while downloading
+  settingsDropdown.classList.add('disabled');
+
+  // Listen to SSE for download progress
+  if (settingsDownloadEventSource) settingsDownloadEventSource.close();
+  settingsDownloadEventSource = new EventSource(`${serverUrl()}/api/v1/logs/stream`);
+  settingsDownloadEventSource.onmessage = (event) => {
+    const line = event.data;
+
+    const pctMatch = line.match(/(?:Overall progress|Progress):\s*(\d+(?:\.\d+)?)%/i);
+    if (pctMatch) {
+      const pct = parseFloat(pctMatch[1]);
+      settingsDownloadBarFill.style.width = pct + '%';
+      settingsDownloadPct.textContent = Math.round(pct) + '%';
+      return;
+    }
+
+    if (/\bDownloaded[:\s]/i.test(line)) {
+      // Download complete — add to downloaded list and clean up
+      if (settingsDownloadEventSource) {
+        settingsDownloadEventSource.close();
+        settingsDownloadEventSource = null;
+      }
+      settingsDownloadBarFill.style.width = '100%';
+      settingsDownloadPct.textContent = '100%';
+
+      // Add the newly downloaded model to the list
+      const newItem = buildDownloadedModelItem({ id: modelId });
+      settingsModelList.appendChild(newItem);
+
+      // Remove from dropdown
+      const option = settingsDropdownMenu.querySelector(`[data-model="${CSS.escape(modelId)}"]`);
+      if (option) option.remove();
+
+      // Auto-select it
+      const radio = newItem.querySelector('input[type="radio"]');
+      radio.checked = true;
+      radio.dispatchEvent(new Event('change'));
+
+      // Hide progress after a short delay
+      setTimeout(() => {
+        settingsDownloadArea.style.display = 'none';
+        settingsDropdown.classList.remove('disabled');
+      }, 800);
+      return;
+    }
+  };
+
+  settingsDownloadEventSource.onerror = () => {
+    settingsDownloadEventSource.close();
+    settingsDownloadEventSource = null;
+    settingsDropdown.classList.remove('disabled');
+  };
+
+  // Trigger the download via /api/v1/load
+  fetch(`${serverUrl()}/api/v1/load`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model_name: modelId }),
+  }).catch(() => {});
+}
+
+// Custom dropdown toggle
+settingsDropdownTrigger.addEventListener('click', () => {
+  if (settingsDropdown.classList.contains('disabled')) return;
+  settingsDropdownMenu.classList.toggle('open');
+});
+
+// Close dropdown when clicking outside
+document.addEventListener('click', (e) => {
+  if (!settingsDropdown.contains(e.target)) {
+    settingsDropdownMenu.classList.remove('open');
+  }
+});
+
+function addDropdownOption(modelId, sizeStr) {
+  const item = document.createElement('div');
+  item.className = 'settings-dropdown-option';
+  item.dataset.model = modelId;
+  item.innerHTML = modelId + (sizeStr ? `<span class="model-size">${sizeStr}</span>` : '');
+  item.addEventListener('click', () => {
+    settingsDropdownMenu.classList.remove('open');
+    if (confirm(`Download "${modelId}"? This may take a while depending on the model size.`)) {
+      startModelDownload(modelId);
+    }
+  });
+  settingsDropdownMenu.appendChild(item);
+}
+
 settingsBtn.addEventListener('click', async () => {
   settingsDialog.style.display = 'flex';
   settingsPendingModel = null;
@@ -1475,44 +1616,54 @@ settingsBtn.addEventListener('click', async () => {
   settingsHostInput.value = serverHost;
   settingsPortInput.value = serverPort;
   settingsModelList.innerHTML = '<p class="settings-loading">Loading models…</p>';
+  settingsDownloadArea.style.display = 'none';
+  settingsDropdownMenu.innerHTML = '';
+  settingsDropdownMenu.classList.remove('open');
+  settingsDropdown.classList.remove('disabled');
 
   try {
-    const modelsRes = await fetch(`${serverUrl()}/api/v1/models`);
-    const modelsData = await modelsRes.json();
-    const imageModels = (modelsData.data || []).filter(m => m.labels?.includes('image'));
+    // Fetch downloaded models and full catalog in parallel
+    const [dlRes, allRes] = await Promise.all([
+      fetch(`${serverUrl()}/api/v1/models`),
+      fetch(`${serverUrl()}/api/v1/models?show_all=true`),
+    ]);
+    const dlData = await dlRes.json();
+    const allData = await allRes.json();
 
-    if (imageModels.length === 0) {
-      settingsModelList.innerHTML = '<p class="settings-loading">No image models found on server.</p>';
-      return;
+    const downloadedModels = (dlData.data || []).filter(m => m.labels?.includes('image'));
+    const allImageModels = (allData.data || []).filter(m => m.labels?.includes('image'));
+
+    // Build a set of downloaded model IDs for reliable diffing
+    const downloadedIds = new Set(downloadedModels.map(m => m.id));
+    const notDownloaded = allImageModels.filter(m => !downloadedIds.has(m.id));
+
+    console.log(`[settings] downloaded image models: ${downloadedModels.length}, available to download: ${notDownloaded.length}`);
+
+    if (downloadedModels.length === 0) {
+      settingsModelList.innerHTML = '<p class="settings-loading">No downloaded image models.</p>';
+    } else {
+      settingsModelList.innerHTML = '';
+      for (const model of downloadedModels) {
+        settingsModelList.appendChild(buildDownloadedModelItem(model));
+      }
     }
 
-    settingsModelList.innerHTML = '';
-    for (const model of imageModels) {
-      const item = document.createElement('label');
-      item.className = 'settings-model-item';
-      if (model.id === selectedModelName) item.classList.add('active');
-
-      const radio = document.createElement('input');
-      radio.type = 'radio';
-      radio.name = 'settings-model';
-      radio.value = model.id;
-      if (model.id === selectedModelName) radio.checked = true;
-
-      const label = document.createElement('span');
-      label.textContent = model.id;
-
-      radio.addEventListener('change', () => {
-        settingsModelList.querySelectorAll('.settings-model-item').forEach(el => el.classList.remove('active'));
-        item.classList.add('active');
-        settingsPendingModel = model.id;
-        checkSettingsChanged();
-      });
-
-      item.appendChild(radio);
-      item.appendChild(label);
-      settingsModelList.appendChild(item);
+    // Populate dropdown with undownloaded models
+    if (notDownloaded.length > 0) {
+      for (const model of notDownloaded) {
+        const sizeStr = model.size ? `(${model.size.toFixed(1)} GB)` : '';
+        addDropdownOption(model.id, sizeStr);
+      }
+    } else {
+      const msg = document.createElement('div');
+      msg.className = 'settings-dropdown-option';
+      msg.style.color = '#888';
+      msg.style.cursor = 'default';
+      msg.textContent = 'All image models downloaded';
+      settingsDropdownMenu.appendChild(msg);
     }
   } catch (e) {
+    console.error('[settings] Failed to fetch models:', e);
     settingsModelList.innerHTML = '<p class="settings-loading">Failed to fetch models. Is the server running?</p>';
   }
 });
@@ -1552,6 +1703,10 @@ settingsApplyBtn.addEventListener('click', () => {
 });
 
 settingsCancelBtn.addEventListener('click', () => {
+  if (settingsDownloadEventSource) {
+    settingsDownloadEventSource.close();
+    settingsDownloadEventSource = null;
+  }
   settingsDialog.style.display = 'none';
 });
 
