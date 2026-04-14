@@ -1418,7 +1418,7 @@ function connectLogStream() {
 
 // --- Server connection ---
 const DEFAULT_SERVER_HOST = 'localhost';
-const DEFAULT_SERVER_PORT = 8000;
+const DEFAULT_SERVER_PORT = 13305;
 let serverHost = localStorage.getItem('serverHost') || DEFAULT_SERVER_HOST;
 let serverPort = parseInt(localStorage.getItem('serverPort'), 10) || DEFAULT_SERVER_PORT;
 
